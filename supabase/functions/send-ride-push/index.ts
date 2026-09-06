@@ -67,10 +67,26 @@ async function sendFcm(tokens: string[], title: string, body: string, data: Reco
   const accessToken = await firebaseAccessToken()
   let sent = 0, failed = 0
   const results = await Promise.all(tokens.map(async token => {
+    const channelId = data.type === 'rides' ? 'rides' : 'alerts'
     const r = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ message: { token, data: { ...data, title, body }, android: { priority: 'HIGH' } } }),
+      body: JSON.stringify({
+        message: {
+          token,
+          notification: { title, body },
+          data: { ...data, title, body },
+          android: {
+            priority: 'HIGH',
+            notification: {
+              channel_id: channelId,
+              sound: 'default',
+              default_sound: true,
+              default_vibrate_timings: true,
+            },
+          },
+        },
+      }),
     })
     if (r.ok) return true
     const text = await r.text()
@@ -138,40 +154,20 @@ Deno.serve(async req => {
 
     if ((event === 'INSERT' || !event) && ride.status === 'pending') {
       const tokens = await driverTokens(ride)
-      result = await sendFcm(
-        tokens,
-        'Novo pedido DUNTA',
-        `${ride.passenger_name || 'Passageiro'} pediu uma corrida`,
-        { type: 'rides', ride_id: String(ride.id) }
-      )
+      result = await sendFcm(tokens, 'Novo pedido DUNTA', `${ride.passenger_name || 'Passageiro'} pediu uma corrida`, { type: 'rides', ride_id: String(ride.id) })
     } else if (event === 'UPDATE') {
       if (old.status !== 'accepted' && ride.status === 'accepted' && ride.passenger_id) {
         const tokens = await passengerTokens(ride.passenger_id)
-        result = await sendFcm(
-          tokens,
-          'Motorista encontrado',
-          `${ride.driver_name || 'O motorista'} aceitou a sua corrida`,
-          { type: 'trip', ride_id: String(ride.id), status: 'accepted' }
-        )
+        result = await sendFcm(tokens, 'Motorista encontrado', `${ride.driver_name || 'O motorista'} aceitou a sua corrida`, { type: 'trip', ride_id: String(ride.id), status: 'accepted' })
       } else if (old.status !== 'completed' && ride.status === 'completed' && ride.passenger_id) {
         const tokens = await passengerTokens(ride.passenger_id)
-        result = await sendFcm(
-          tokens,
-          'Corrida concluída',
-          'A sua viagem foi concluída.',
-          { type: 'trip', ride_id: String(ride.id), status: 'completed' }
-        )
+        result = await sendFcm(tokens, 'Corrida concluída', 'A sua viagem foi concluída.', { type: 'trip', ride_id: String(ride.id), status: 'completed' })
       } else if (old.status !== 'cancelled' && ride.status === 'cancelled') {
         const targets = [ride.passenger_id, ride.driver_id].filter(Boolean) as string[]
         let sent = 0, failed = 0
         for (const target of [...new Set(targets)]) {
           const tokens = await passengerTokens(target)
-          const r = await sendFcm(
-            tokens,
-            'Corrida cancelada',
-            'A corrida foi cancelada.',
-            { type: 'trip', ride_id: String(ride.id), status: 'cancelled' }
-          )
+          const r = await sendFcm(tokens, 'Corrida cancelada', 'A corrida foi cancelada.', { type: 'trip', ride_id: String(ride.id), status: 'cancelled' })
           sent += r.sent
           failed += r.failed
         }

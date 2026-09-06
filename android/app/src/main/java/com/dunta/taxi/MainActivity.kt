@@ -13,6 +13,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -72,6 +73,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(web)
+
+        // O botão/gesto Voltar do Android nunca deve fechar a DUNTA TAXI nem
+        // navegar pelo histórico do WebView. A navegação interna da interface
+        // é controlada pelo próprio HTML; o evento do sistema é consumido aqui.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                web.evaluateJavascript(
+                    """(function(){try{if(typeof window.duntaHandleBack==='function'){window.duntaHandleBack();}}catch(e){}})();""",
+                    null
+                )
+            }
+        })
+
         web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
         requestLocationAndNotifications()
         registerFcmToken()

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -45,9 +46,21 @@ class MainActivity : AppCompatActivity() {
             settings.setGeolocationEnabled(true)
             settings.allowFileAccess = false
             settings.allowContentAccess = false
+            settings.setSupportZoom(false)
+            settings.builtInZoomControls = false
+            settings.displayZoomControls = false
+            isHorizontalScrollBarEnabled = false
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                     return assetLoader.shouldInterceptRequest(request.url) ?: super.shouldInterceptRequest(view, request)
+                }
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    super.onPageFinished(view, url)
+                    // Always show the DUNTA startup animation before the user enters the app/auth screen.
+                    view.evaluateJavascript("try{if(typeof showDuntaSplash==='function')showDuntaSplash();}catch(e){}", null)
                 }
             }
             webChromeClient = object : WebChromeClient() {
@@ -60,7 +73,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(web)
-        // This is local APK content. It must work with mobile data/Wi-Fi disabled.
         web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
         requestLocationAndNotifications()
         registerFcmToken()

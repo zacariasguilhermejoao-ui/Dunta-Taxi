@@ -56,6 +56,7 @@ class DuntaFirebaseMessagingService : FirebaseMessagingService() {
             val importance = if (channelId == "rides") NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT
             manager.createNotificationChannel(NotificationChannel(channelId, if (channelId == "rides") "Pedidos de corrida" else "Alertas DUNTA", importance))
         }
+
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (!rideId.isNullOrBlank()) putExtra("ride_id", rideId)

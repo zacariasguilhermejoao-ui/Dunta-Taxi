@@ -8,3 +8,5 @@ DUNTA TAXI v5 — FOTOS DE PERFIL + ÍCONES REAIS
 6. Quando o motorista aceita, a foto do motorista aparece para o passageiro.
 7. A foto também aparece no perfil e pode ser alterada em Conta > Alterar foto.
 8. Os ícones de transporte e interface principais usam Font Awesome: carro, táxi, mota, utilizador e outros.
+
+Font Awesome: https://fontawesome.com/

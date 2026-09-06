@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "711152561308",
+    "project_id": "dunta-taxi",
+    "storage_bucket": "dunta-taxi.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:711152561308:android:86ce17caa83a4905701159",
+        "android_client_info": {
+          "package_name": "com.dunta.taxi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCvmxEBOWRugE8RNLVC_GRZbaYa3o5nyfE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

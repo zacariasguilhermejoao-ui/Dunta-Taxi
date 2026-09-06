@@ -3,6 +3,7 @@ package com.dunta.taxi
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -34,6 +35,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The native window is visible before WebView finishes loading. Keep it
+        // branded instead of showing a blank white screen during that interval.
+        window.setBackgroundDrawableResource(android.R.color.black)
+        if (Build.VERSION.SDK_INT >= 23) {
+            window.statusBarColor = Color.rgb(11, 15, 13)
+            window.navigationBarColor = Color.rgb(11, 15, 13)
+            window.decorView.systemUiVisibility = 0
+        }
         super.onCreate(savedInstanceState)
 
         val assetLoader = WebViewAssetLoader.Builder()
@@ -41,6 +50,9 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         web = WebView(this).apply {
+            // Transparent until the real DUNTA HTML splash is painted. This
+            // prevents the WebView's default white surface from flashing first.
+            setBackgroundColor(Color.TRANSPARENT)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
@@ -74,9 +86,6 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(web)
 
-        // O botão/gesto Voltar do Android nunca deve fechar a DUNTA TAXI nem
-        // navegar pelo histórico do WebView. A navegação interna da interface
-        // é controlada pelo próprio HTML; o evento do sistema é consumido aqui.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 web.evaluateJavascript(
@@ -97,7 +106,7 @@ class MainActivity : AppCompatActivity() {
               try{
                 if(!document.getElementById('dunta-native-fixes')){
                   var style=document.createElement('style');style.id='dunta-native-fixes';
-                  style.textContent='html,body{width:100%!important;max-width:100%!important;overflow-x:hidden!important;overscroll-behavior-x:none!important}body{position:relative!important}#auth,#app,#dunta-splash{width:100%!important;max-width:100%!important;overflow-x:hidden!important}.dunta-studio-logo{display:block!important;width:min(110px,28vw)!important;height:auto!important;max-width:110px!important;max-height:58px!important;object-fit:contain!important;margin:14px auto!important}';
+                  style.textContent='html,body{width:100%!important;max-width:100%!important;overflow-x:hidden!important;overscroll-behavior-x:none!important}body{position:relative!important;background:#0B0F0D!important}#auth,#app,#dunta-splash{width:100%!important;max-width:100%!important;overflow-x:hidden!important}.dunta-studio-logo{display:block!important;width:min(110px,28vw)!important;height:auto!important;max-width:110px!important;max-height:58px!important;object-fit:contain!important;margin:14px auto!important}';
                   document.head.appendChild(style);
                 }
               }catch(e){}

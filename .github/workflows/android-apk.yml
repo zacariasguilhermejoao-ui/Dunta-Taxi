@@ -1,8 +1,9 @@
-name: Build DUNTA TAXI APK
+name: Build DUNTA TAXI Android
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - 'android/**'
       - '.github/workflows/android-apk.yml'
@@ -33,13 +34,22 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Build debug APK
+      - name: Build debug APK and release AAB
         working-directory: android
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug bundleRelease --stacktrace
 
-      - name: Upload APK
+      - name: Verify APK and AAB
+        run: |
+          test -f android/app/build/outputs/apk/debug/app-debug.apk
+          test -f android/app/build/outputs/bundle/release/app-release.aab
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Upload APK and AAB
         uses: actions/upload-artifact@v4
         with:
-          name: dunta-taxi-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: dunta-taxi-android-builds
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error

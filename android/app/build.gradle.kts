@@ -11,6 +11,23 @@ android { namespace = "com.dunta.taxi"; compileSdk = 35
     kotlinOptions { jvmTarget = "17" }
 }
 
+// The complete web interface lives at the repository root. Copy it into the APK
+// on every build so the interface is available even with no mobile data/Wi-Fi.
+val syncWebAssets by tasks.registering(Copy::class) {
+    val webRoot = rootProject.projectDir.parentFile
+    from(webRoot) {
+        include("index.html")
+        include("manifest.webmanifest")
+        include("sw.js")
+        include("apple-touch-icon.png")
+        include("icon-192.png")
+        include("icon-512.png")
+    }
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+tasks.named("preBuild") { dependsOn(syncWebAssets) }
+
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging")

@@ -16,6 +16,7 @@ import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -37,9 +38,7 @@ class DriverLocationService : Service() {
             result.lastLocation?.let { location ->
                 lastLat = location.latitude
                 lastLng = location.longitude
-                scope.launch {
-                    publish(location.latitude, location.longitude)
-                }
+                scope.launch { publish(location.latitude, location.longitude) }
             }
         }
     }
@@ -50,7 +49,6 @@ class DriverLocationService : Service() {
         createNotificationChannels()
         startForeground(91, notification("DUNTA TAXI está online"))
         startLocation()
-
         scope.launch {
             while (isActive) {
                 checkRides()
@@ -60,33 +58,22 @@ class DriverLocationService : Service() {
     }
 
     private fun startLocation() {
-        val request = LocationRequest.Builder(
-            Priority.PRIORITY_HIGH_ACCURACY,
-            10000L
-        )
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000L)
             .setMinUpdateIntervalMillis(5000L)
             .setMinUpdateDistanceMeters(10f)
             .build()
-
         try {
-            fused.requestLocationUpdates(
-                request,
-                callback,
-                Looper.getMainLooper()
-            )
+            fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
         } catch (_: SecurityException) {
         }
     }
 
     private fun publish(lat: Double, lng: Double) = scope.launch {
         refreshTokenIfNeeded()
-
         val preferences = getSharedPreferences("dunta", 0)
         val token = preferences.getString("access_token", "") ?: return@launch
         val driverId = preferences.getString("user_id", "") ?: return@launch
-
         if (token.isBlank() || driverId.isBlank()) return@launch
-
         val url = "https://keonvsakkkzxnxxduacz.supabase.co/rest/v1/drivers_locations?on_conflict=driver_id"
         val body = JSONObject().apply {
             put("driver_id", driverId)
@@ -98,62 +85,33 @@ class DriverLocationService : Service() {
             put("is_online", true)
             put("updated_at", java.time.Instant.now().toString())
         }
-
-        request(
-            url = url,
-            method = "POST",
-            token = token,
-            body = body.toString(),
-            prefer = "resolution=merge-duplicates,return=minimal"
-        )
+        request(url, "POST", token, body.toString(), "resolution=merge-duplicates,return=minimal")
     }
 
     private suspend fun checkRides() {
         refreshTokenIfNeeded()
-
         val preferences = getSharedPreferences("dunta", 0)
         val token = preferences.getString("access_token", "") ?: return
         val vehicle = preferences.getString("vehicle", "taxi") ?: "taxi"
-
         if (token.isBlank()) return
-
         val url = "https://keonvsakkkzxnxxduacz.supabase.co/rest/v1/ride_requests" +
-            "?status=eq.pending" +
-            "&select=id,passenger_name,destination,vehicle_type,passenger_lat,passenger_lng" +
+            "?status=eq.pending&select=id,passenger_name,destination,vehicle_type,passenger_lat,passenger_lng" +
             "&order=created_at.desc&limit=10"
-
-        val output = request(
-            url = url,
-            method = "GET",
-            token = token,
-            body = null,
-            prefer = null
-        ) ?: return
-
+        val output = request(url, "GET", token, null, null) ?: return
         try {
             val rides = JSONArray(output)
             for (index in 0 until rides.length()) {
                 val ride = rides.getJSONObject(index)
                 val requestedVehicle = ride.optString("vehicle_type", "any")
-
                 if (requestedVehicle != "any" && requestedVehicle != vehicle) continue
-
                 val rideId = ride.optString("id")
                 if (rideId.isBlank() || rideId == lastRide) continue
-
                 val passengerLat = ride.optDouble("passenger_lat", Double.NaN)
                 val passengerLng = ride.optDouble("passenger_lng", Double.NaN)
                 if (!passengerLat.isFinite() || !passengerLng.isFinite()) continue
-
-                if (lastLat != 0.0 && distance(lastLat, lastLng, passengerLat, passengerLng) > 15.0) {
-                    continue
-                }
-
+                if (lastLat != 0.0 && distance(lastLat, lastLng, passengerLat, passengerLng) > 15.0) continue
                 lastRide = rideId
-                notifyRide(
-                    ride.optString("passenger_name", "Passageiro"),
-                    ride.optString("destination", "Destino")
-                )
+                notifyRide(ride.optString("passenger_name", "Passageiro"), ride.optString("destination", "Destino"))
                 break
             }
         } catch (_: Exception) {
@@ -163,73 +121,38 @@ class DriverLocationService : Service() {
     private suspend fun refreshTokenIfNeeded() {
         val now = System.currentTimeMillis()
         if (now - tokenCheckedAt < 40 * 60 * 1000L) return
-
         val preferences = getSharedPreferences("dunta", 0)
         val refreshToken = preferences.getString("refresh_token", "") ?: return
         if (refreshToken.isBlank()) return
-
-        val body = JSONObject()
-            .put("refresh_token", refreshToken)
-            .toString()
-
-        val output = request(
-            url = "https://keonvsakkkzxnxxduacz.supabase.co/auth/v1/token?grant_type=refresh_token",
-            method = "POST",
-            token = ANON,
-            body = body,
-            prefer = null
-        ) ?: return
-
+        val body = JSONObject().put("refresh_token", refreshToken).toString()
+        val output = request("https://keonvsakkkzxnxxduacz.supabase.co/auth/v1/token?grant_type=refresh_token", "POST", ANON, body, null) ?: return
         try {
             val json = JSONObject(output)
             val accessToken = json.optString("access_token")
             val newRefreshToken = json.optString("refresh_token", refreshToken)
-
             if (accessToken.isNotBlank()) {
-                preferences.edit()
-                    .putString("access_token", accessToken)
-                    .putString("refresh_token", newRefreshToken)
-                    .apply()
+                preferences.edit().putString("access_token", accessToken).putString("refresh_token", newRefreshToken).apply()
                 tokenCheckedAt = now
             }
         } catch (_: Exception) {
         }
     }
 
-    private fun request(
-        url: String,
-        method: String,
-        token: String,
-        body: String?,
-        prefer: String?
-    ): String? {
+    private fun request(url: String, method: String, token: String, body: String?, prefer: String?): String? {
         return try {
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.requestMethod = method
             connection.setRequestProperty("apikey", ANON)
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.setRequestProperty("Content-Type", "application/json")
-
-            if (prefer != null) {
-                connection.setRequestProperty("Prefer", prefer)
-            }
-
+            if (prefer != null) connection.setRequestProperty("Prefer", prefer)
             connection.doInput = true
-
             if (body != null) {
                 connection.doOutput = true
-                connection.outputStream.use { output ->
-                    output.write(body.toByteArray(Charsets.UTF_8))
-                }
+                connection.outputStream.use { output -> output.write(body.toByteArray(Charsets.UTF_8)) }
             }
-
             val responseCode = connection.responseCode
-            val stream = if (responseCode in 200..299) {
-                connection.inputStream
-            } else {
-                connection.errorStream
-            }
-
+            val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
             val response = stream?.bufferedReader()?.use { it.readText() }
             connection.disconnect()
             response
@@ -246,9 +169,7 @@ class DriverLocationService : Service() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(7001, notification)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(7001, notification)
     }
 
     private fun notification(text: String) = NotificationCompat.Builder(this, "location")
@@ -261,38 +182,21 @@ class DriverLocationService : Service() {
 
     private fun createNotificationChannels() {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(
-            NotificationChannel(
-                "location",
-                "Localização do motorista",
-                NotificationManager.IMPORTANCE_LOW
-            )
-        )
-        manager.createNotificationChannel(
-            NotificationChannel(
-                "rides",
-                "Pedidos de corrida",
-                NotificationManager.IMPORTANCE_HIGH
-            )
-        )
+        manager.createNotificationChannel(NotificationChannel("location", "Localização do motorista", NotificationManager.IMPORTANCE_LOW))
+        manager.createNotificationChannel(NotificationChannel("rides", "Pedidos de corrida", NotificationManager.IMPORTANCE_HIGH))
     }
 
     private fun distance(a: Double, b: Double, c: Double, d: Double): Double {
         val radius = 6371000.0
         val x = Math.toRadians(c - a)
         val y = Math.toRadians(d - b)
-        val h = Math.sin(x / 2) * Math.sin(x / 2) +
-            Math.cos(Math.toRadians(a)) * Math.cos(Math.toRadians(c)) *
-            Math.sin(y / 2) * Math.sin(y / 2)
+        val h = Math.sin(x / 2) * Math.sin(x / 2) + Math.cos(Math.toRadians(a)) * Math.cos(Math.toRadians(c)) * Math.sin(y / 2) * Math.sin(y / 2)
         return 2 * radius * Math.asin(Math.sqrt(h))
     }
 
     override fun onDestroy() {
         scope.cancel()
-        try {
-            fused.removeLocationUpdates(callback)
-        } catch (_: Exception) {
-        }
+        try { fused.removeLocationUpdates(callback) } catch (_: Exception) { }
         super.onDestroy()
     }
 

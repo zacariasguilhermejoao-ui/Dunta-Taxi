@@ -52,18 +52,15 @@ class MainActivity : AppCompatActivity() {
             }
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                    if (hasLocationPermission()) {
-                        callback?.invoke(origin, true, false)
-                    } else {
-                        requestLocationAndNotifications()
-                    }
+                    if (hasLocationPermission()) callback?.invoke(origin, true, false)
+                    else requestLocationAndNotifications()
                 }
             }
             addJavascriptInterface(NativeBridge(), "DuntaNative")
         }
 
         setContentView(web)
-        // Local app content: available without mobile data/Wi-Fi.
+        // This is local APK content. It must work with mobile data/Wi-Fi disabled.
         web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
         requestLocationAndNotifications()
         registerFcmToken()

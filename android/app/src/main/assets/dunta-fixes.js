@@ -105,11 +105,13 @@
                       if(typeof setPassengerMarker==='function')setPassengerMarker(plat,plng,r.data.passenger_name,r.data.passenger_avatar_url);
                       if(duntaMap)duntaMap.setView([plat,plng],15);
                       try{if(typeof drawLiveRideRoute==='function')drawLiveRideRoute()}catch(e){}
+                      try{if(typeof drawRoadRoute==='function')drawRoadRoute(plat,plng)}catch(e){}
                     }
                     if(typeof showBan==='function')showBan('<div><b>Pedido aceite</b><div>Dirija-se a '+(r.data.passenger_name||'passageiro')+'</div><div>Destino: '+(r.data.destination||'—')+'</div></div>');
                     toast&&toast('Pedido aceite!');
                     updUI();
                     if(typeof startDriverSync==='function')startDriverSync();
+                    try{if(req&&req.id&&window.DuntaNative&&DuntaNative.markRideHandled)DuntaNative.markRideHandled(String(req.id))}catch(e){}
                   }catch(e){console.error(e);toast&&toast('Erro ao aceitar')}
                 };
               }
@@ -161,5 +163,119 @@
                 },80);
               }
               if(!window.__duntaDriversRefresh){window.__duntaDriversRefresh=1;setInterval(function(){loadNearbyDrivers&&loadNearbyDrivers()},8000)}
+
+              window.duntaHandlePushOpen=function(rideId,type){
+                try{
+                  if(rideId){window.__duntaHandledRides=window.__duntaHandledRides||{};window.__duntaHandledRides[rideId]=true;}
+                  try{var auth=document.getElementById('auth'),app=document.getElementById('app');if(auth)auth.classList.add('hidden');if(app)app.classList.remove('hidden');}catch(e){}
+                  if(type==='rides'&&rideId&&window.duntaSupabase){
+                    window.duntaSupabase.from('ride_requests').select('*').eq('id',rideId).single().then(function(res){
+                      var req=res.data;if(!req)return;
+                      if(req.status==='pending'&&typeof showDriverRequest==='function')showDriverRequest(req);
+                      else if(req.status==='accepted'){
+                        window.duntaActiveRide=req;
+                        if(typeof showBan==='function')showBan('<div><b>Pedido aceite</b><div>'+(req.passenger_name||'Passageiro')+' · '+(req.destination||'')+'</div></div>');
+                        if(typeof updUI==='function')updUI();
+                        if(req.passenger_lat&&req.passenger_lng&&duntaMap){
+                          duntaMap.setView([+req.passenger_lat,+req.passenger_lng],15);
+                          if(typeof setPassengerMarker==='function')setPassengerMarker(+req.passenger_lat,+req.passenger_lng,req.passenger_name,req.passenger_avatar_url);
+                          try{drawRoadRoute(+req.passenger_lat,+req.passenger_lng)}catch(e){}
+                        }
+                      }
+                    });
+                  }
+                  if(typeof toast==='function')toast('Aberto a partir da notificação');
+                }catch(e){console.error('duntaHandlePushOpen',e)}
+              };
+
+              if(typeof showDriverRequest==='function'&&!window.__duntaShowReqFixed){
+                window.__duntaShowReqFixed=1;
+                var _showReq=showDriverRequest;
+                window.showDriverRequest=function(req){
+                  try{
+                    window.__duntaHandledRides=window.__duntaHandledRides||{};
+                    if(req&&req.id&&window.__duntaHandledRides[req.id])return;
+                    if(window.duntaActiveRide&&window.duntaActiveRide.id&&req&&req.id===window.duntaActiveRide.id)return;
+                  }catch(e){}
+                  return _showReq(req);
+                };
+              }
+
+              if(typeof acceptRide==='function'&&!window.__duntaAcceptMarkFixed){
+                window.__duntaAcceptMarkFixed=1;
+                var _acc=acceptRide;
+                window.acceptRide=async function(){
+                  try{
+                    var req=window.duntaIncomingRequest;
+                    if(req&&req.id){
+                      window.__duntaHandledRides=window.__duntaHandledRides||{};
+                      window.__duntaHandledRides[req.id]=true;
+                      try{if(window.DuntaNative&&DuntaNative.markRideHandled)DuntaNative.markRideHandled(String(req.id))}catch(e){}
+                    }
+                  }catch(e){}
+                  return await _acc.apply(this,arguments);
+                };
+              }
+
+              window.drawRoadRoute=async function(destLat,destLng){
+                try{
+                  if(!duntaMap||!duntaMe)return;
+                  var p=duntaMe.getLatLng();
+                  if(window.routeLine){try{duntaMap.removeLayer(window.routeLine)}catch(e){}}
+                  var u='https://router.project-osrm.org/route/v1/driving/'+p.lng+','+p.lat+';'+destLng+','+destLat+'?overview=full&geometries=geojson';
+                  var r=await fetch(u);
+                  if(!r.ok)throw new Error('route');
+                  var j=await r.json();
+                  var coords=j.routes&&j.routes[0]&&j.routes[0].geometry&&j.routes[0].geometry.coordinates;
+                  if(!coords||!coords.length)throw new Error('empty');
+                  window.routeLine=L.polyline(coords.map(function(x){return[x[1],x[0]]}),{color:'#16A34A',weight:6,opacity:0.95}).addTo(duntaMap);
+                  duntaMap.fitBounds(window.routeLine.getBounds(),{padding:[50,50]});
+                  var km=(j.routes[0].distance||0)/1000;
+                  var mins=Math.max(1,Math.round((j.routes[0].duration||0)/60));
+                  var eta=document.getElementById('eta');
+                  if(eta){eta.style.display='block';eta.innerHTML='~'+mins+' min<small>'+km.toFixed(1)+' km pelas estradas</small>'}
+                  if(window._routeEndMarker)try{duntaMap.removeLayer(window._routeEndMarker)}catch(e){}
+                  window._routeEndMarker=L.marker([destLat,destLng]).addTo(duntaMap).bindPopup('<b>Destino</b>');
+                }catch(e){
+                  console.error('drawRoadRoute',e);
+                  try{if(typeof toast==='function')toast('Não foi possível traçar a rota pelas estradas')}catch(x){}
+                }
+              };
+
+              if(typeof drawDestinationRoute==='function'&&!window.__duntaRoadRouteFixed){
+                window.__duntaRoadRouteFixed=1;
+                var _ddr=drawDestinationRoute;
+                window.drawDestinationRoute=async function(){
+                  try{
+                    if(duntaDestinationCoords){
+                      await window.drawRoadRoute(duntaDestinationCoords.lat,duntaDestinationCoords.lng);
+                      return;
+                    }
+                  }catch(e){}
+                  try{return await _ddr.apply(this,arguments)}catch(e){}
+                };
+                if(typeof drawFakeRoute==='function')drawFakeRoute=function(){return drawDestinationRoute()};
+              }
+
+              if(typeof drawLiveRideRoute==='function'&&!window.__duntaLiveRouteFixed){
+                window.__duntaLiveRouteFixed=1;
+                window.drawLiveRideRoute=async function(){
+                  try{
+                    var dest=null;
+                    if(window.duntaActiveRide&&window.duntaActiveRide.passenger_lat){
+                      dest={lat:+window.duntaActiveRide.passenger_lat,lng:+window.duntaActiveRide.passenger_lng};
+                    } else if(window.duntaPassengerMarker){
+                      var ll=window.duntaPassengerMarker.getLatLng();
+                      dest={lat:ll.lat,lng:ll.lng};
+                    }
+                    if(dest)await window.drawRoadRoute(dest.lat,dest.lng);
+                  }catch(e){console.error(e)}
+                };
+              }
+
+              if(window.__duntaOpenFromPush&&window.__duntaPushRideId){
+                setTimeout(function(){window.duntaHandlePushOpen(window.__duntaPushRideId,window.__duntaPushType||'rides')},500);
+              }
+
               setTimeout(updUI,400);
             })();

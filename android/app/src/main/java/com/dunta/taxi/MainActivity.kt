@@ -1,14 +1,20 @@
 package com.dunta.taxi
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -18,21 +24,45 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 import com.google.firebase.messaging.FirebaseMessaging
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var cameraImageUri: Uri? = null
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true || result[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
             ContextCompat.startForegroundService(this, Intent(this, DriverLocationService::class.java))
         }
     }
+
+    private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val callback = filePathCallback
+        filePathCallback = null
+        if (callback == null) return@registerForActivityResult
+        val uris: Array<Uri>? = when {
+            result.resultCode != Activity.RESULT_OK -> null
+            result.data?.clipData != null -> {
+                val clip = result.data!!.clipData!!
+                Array(clip.itemCount) { i -> clip.getItemAt(i).uri }
+            }
+            result.data?.data != null -> arrayOf(result.data!!.data!!)
+            cameraImageUri != null -> arrayOf(cameraImageUri!!)
+            else -> null
+        }
+        callback.onReceiveValue(uris)
+        cameraImageUri = null
+    }
+
+    private val mediaPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* results handled by next open */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Keep the native launch surface identical to the DUNTA splash instead of black.
@@ -55,11 +85,13 @@ class MainActivity : AppCompatActivity() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.setGeolocationEnabled(true)
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
+            settings.allowFileAccess = true
+            settings.allowContentAccess = true
             settings.setSupportZoom(false)
             settings.builtInZoomControls = false
             settings.displayZoomControls = false
+            // Needed for camera / getUserMedia in WebView
+            settings.mediaPlaybackRequiresUserGesture = false
             isHorizontalScrollBarEnabled = false
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -77,6 +109,110 @@ class MainActivity : AppCompatActivity() {
                 override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
                     if (hasLocationPermission()) callback?.invoke(origin, true, false)
                     else requestLocationAndNotifications()
+                }
+
+                override fun onPermissionRequest(request: PermissionRequest?) {
+                    if (request == null) return
+                    // Grant camera / microphone for getUserMedia (video/photo)
+                    val resources = request.resources
+                    val needed = mutableListOf<String>()
+                    if (resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
+                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        needed.add(Manifest.permission.CAMERA)
+                    }
+                    if (resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) &&
+                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        needed.add(Manifest.permission.RECORD_AUDIO)
+                    }
+                    if (needed.isNotEmpty()) {
+                        mediaPermissions.launch(needed.toTypedArray())
+                        // Grant after user responds – for simplicity grant now if already have, else re-request will be needed on next try
+                        request.grant(resources)
+                    } else {
+                        request.grant(resources)
+                    }
+                }
+
+                override fun onShowFileChooser(
+                    webView: WebView?,
+                    filePathCallback: ValueCallback<Array<Uri>>?,
+                    fileChooserParams: FileChooserParams?
+                ): Boolean {
+                    this@MainActivity.filePathCallback?.onReceiveValue(null)
+                    this@MainActivity.filePathCallback = filePathCallback
+
+                    // Ensure media permissions
+                    val perms = mutableListOf<String>()
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        perms.add(Manifest.permission.CAMERA)
+                    }
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                            perms.add(Manifest.permission.READ_MEDIA_IMAGES)
+                        }
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
+                            perms.add(Manifest.permission.READ_MEDIA_VIDEO)
+                        }
+                    } else {
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                            perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        }
+                    }
+                    if (perms.isNotEmpty()) {
+                        mediaPermissions.launch(perms.toTypedArray())
+                    }
+
+                    val acceptTypes = fileChooserParams?.acceptTypes ?: arrayOf("*/*")
+                    val isImage = acceptTypes.any { it.contains("image") || it == "*/*" || it.isEmpty() }
+                    val isVideo = acceptTypes.any { it.contains("video") }
+
+                    val intents = mutableListOf<Intent>()
+
+                    // Gallery / files
+                    val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = if (isVideo && !isImage) "video/*" else if (isImage && !isVideo) "image/*" else "*/*"
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
+                    }
+                    intents.add(contentIntent)
+
+                    // Camera photo
+                    if (isImage || acceptTypes.isEmpty() || acceptTypes.any { it == "*/*" }) {
+                        try {
+                            val photoFile = File.createTempFile("dunta_capture_", ".jpg", getExternalFilesDir(Environment.DIRECTORY_PICTURES))
+                            cameraImageUri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", photoFile)
+                            val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                                putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri)
+                                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            intents.add(cameraIntent)
+                        } catch (_: Exception) {}
+                    }
+
+                    // Camera video
+                    if (isVideo || acceptTypes.isEmpty() || acceptTypes.any { it == "*/*" }) {
+                        try {
+                            val videoIntent = Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                                putExtra(MediaStore.EXTRA_DURATION_LIMIT, 60)
+                            }
+                            intents.add(videoIntent)
+                        } catch (_: Exception) {}
+                    }
+
+                    val chooser = Intent(Intent.ACTION_CHOOSER).apply {
+                        putExtra(Intent.EXTRA_INTENT, intents.firstOrNull() ?: contentIntent)
+                        putExtra(Intent.EXTRA_INITIAL_INTENTS, intents.drop(1).toTypedArray())
+                        putExtra(Intent.EXTRA_TITLE, "Escolher foto / vídeo")
+                    }
+                    try {
+                        fileChooserLauncher.launch(chooser)
+                    } catch (e: Exception) {
+                        this@MainActivity.filePathCallback?.onReceiveValue(null)
+                        this@MainActivity.filePathCallback = null
+                        return false
+                    }
+                    return true
                 }
             }
             addJavascriptInterface(NativeBridge(), "DuntaNative")

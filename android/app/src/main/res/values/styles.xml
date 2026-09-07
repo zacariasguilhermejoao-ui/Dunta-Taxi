@@ -6,7 +6,7 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">#0B0F0D</item>
         <item name="android:navigationBarColor">#0B0F0D</item>
-        <item name="android:windowBackground">#0B0F0D</item>
+        <item name="android:windowBackground">@drawable/dunta_splash</item>
         <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

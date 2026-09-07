@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="#0B0F0D" />
-    <item android:gravity="center" android:width="180dp" android:height="180dp" android:drawable="@drawable/ic_launcher" />
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#0B0F0D" />
+        </shape>
+    </item>
+
+    <item
+        android:gravity="center"
+        android:width="180dp"
+        android:height="180dp"
+        android:drawable="@drawable/ic_launcher" />
+
 </layer-list>

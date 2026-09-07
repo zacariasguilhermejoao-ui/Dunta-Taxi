@@ -50,11 +50,13 @@ class DuntaFirebaseMessagingService : FirebaseMessagingService() {
         val type = data["type"] ?: "alerts"
         val rideId = data["ride_id"]
 
+        val prefs = getSharedPreferences("dunta", 0)
+        val active = prefs.getString("active_ride_id", "")
+        // Em viagem ativa: não mostrar novos pedidos
+        if (type == "rides" && !active.isNullOrBlank()) return
         if (!rideId.isNullOrBlank()) {
-            val prefs = getSharedPreferences("dunta", 0)
             val handled = prefs.getStringSet("handled_ride_ids", emptySet()) ?: emptySet()
             if (handled.contains(rideId)) return
-            val active = prefs.getString("active_ride_id", "")
             if (!active.isNullOrBlank() && active == rideId) return
         }
 
@@ -119,6 +121,11 @@ class DuntaFirebaseMessagingService : FirebaseMessagingService() {
             prefs.edit().putStringSet("handled_ride_ids", trimmed).putString("active_ride_id", rideId).apply()
             val manager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             manager.cancel("dunta_ride", rideId.hashCode())
+            try { manager.cancelAll() } catch (_: Exception) {}
+        }
+
+        fun clearActiveRide(context: android.content.Context) {
+            context.getSharedPreferences("dunta", 0).edit().remove("active_ride_id").apply()
         }
     }
 }

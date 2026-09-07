@@ -35,9 +35,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // The native window is visible before WebView finishes loading. Keep it
-        // branded instead of showing a blank white screen during that interval.
-        window.setBackgroundDrawableResource(android.R.color.black)
+        // Keep the native launch surface identical to the DUNTA splash instead of black.
+        window.setBackgroundDrawableResource(com.dunta.taxi.R.drawable.dunta_splash)
         if (Build.VERSION.SDK_INT >= 23) {
             window.statusBarColor = Color.rgb(11, 15, 13)
             window.navigationBarColor = Color.rgb(11, 15, 13)
@@ -50,8 +49,7 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         web = WebView(this).apply {
-            // Transparent until the real DUNTA HTML splash is painted. This
-            // prevents the WebView's default white surface from flashing first.
+            // Transparent until the real DUNTA HTML splash is painted.
             setBackgroundColor(Color.TRANSPARENT)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true

@@ -124,6 +124,18 @@ class MainActivity : AppCompatActivity() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                     return assetLoader.shouldInterceptRequest(request.url) ?: super.shouldInterceptRequest(view, request)
                 }
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val u = request?.url?.toString() ?: return false
+                    if (u.startsWith("tel:")) {
+                        try { startActivity(Intent(Intent.ACTION_DIAL, Uri.parse(u))) } catch (e: Exception) { e.printStackTrace() }
+                        return true
+                    }
+                    if (u.startsWith("mailto:") || u.startsWith("sms:")) {
+                        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) } catch (_: Exception) {}
+                        return true
+                    }
+                    return false
+                }
                 override fun onPageFinished(view: WebView, url: String?) {
                     super.onPageFinished(view, url)
                     injectDuntaFixes(view)
@@ -225,11 +237,7 @@ class MainActivity : AppCompatActivity() {
         val rideId = intent.getStringExtra("ride_id")
         val type = intent.getStringExtra("notification_type") ?: ""
         if (!fromNotif && rideId.isNullOrBlank()) return
-
-        if (!rideId.isNullOrBlank()) {
-            DuntaFirebaseMessagingService.markRideHandled(this, rideId)
-        }
-
+        if (!rideId.isNullOrBlank()) DuntaFirebaseMessagingService.markRideHandled(this, rideId)
         web.postDelayed({
             val rid = (rideId ?: "").replace("'", "").replace("\\", "")
             val t = type.replace("'", "")
@@ -242,9 +250,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val code = assets.open("dunta-fixes.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
             view.evaluateJavascript(code, null)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun hasLocationPermission(): Boolean =
@@ -325,6 +331,15 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun markRideHandled(rideId: String) {
             DuntaFirebaseMessagingService.markRideHandled(this@MainActivity, rideId)
+        }
+
+        @JavascriptInterface
+        fun dialPhone(number: String) {
+            try {
+                val clean = number.replace(Regex("[^0-9+]"), "")
+                if (clean.isBlank()) return
+                startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$clean")))
+            } catch (e: Exception) { e.printStackTrace() }
         }
     }
 }

@@ -210,6 +210,32 @@ class MainActivity : AppCompatActivity() {
         web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
         requestLocationAndNotifications()
         registerFcmToken()
+        handleNotificationIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        if (intent == null) return
+        val fromNotif = intent.getBooleanExtra("from_notification", false)
+        val rideId = intent.getStringExtra("ride_id")
+        val type = intent.getStringExtra("notification_type") ?: ""
+        if (!fromNotif && rideId.isNullOrBlank()) return
+
+        if (!rideId.isNullOrBlank()) {
+            DuntaFirebaseMessagingService.markRideHandled(this, rideId)
+        }
+
+        web.postDelayed({
+            val rid = (rideId ?: "").replace("'", "").replace("\\", "")
+            val t = type.replace("'", "")
+            val js = "(function(){try{window.__duntaOpenFromPush=true;window.__duntaPushRideId='" + rid + "';window.__duntaPushType='" + t + "';if(typeof window.duntaHandlePushOpen==='function'){window.duntaHandlePushOpen('" + rid + "','" + t + "');}}catch(e){console.error(e)}})();"
+            web.evaluateJavascript(js, null)
+        }, 1200)
     }
 
     private fun injectDuntaFixes(view: WebView) {
@@ -294,6 +320,11 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun stopDriverService() {
             stopService(Intent(this@MainActivity, DriverLocationService::class.java))
+        }
+
+        @JavascriptInterface
+        fun markRideHandled(rideId: String) {
+            DuntaFirebaseMessagingService.markRideHandled(this@MainActivity, rideId)
         }
     }
 }

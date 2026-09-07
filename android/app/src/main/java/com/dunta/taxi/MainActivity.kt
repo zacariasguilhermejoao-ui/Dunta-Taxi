@@ -30,6 +30,7 @@ import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 import com.google.firebase.messaging.FirebaseMessaging
 import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
+    private var cameraImageFile: File? = null
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true || result[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
@@ -48,24 +50,55 @@ class MainActivity : AppCompatActivity() {
         val callback = filePathCallback
         filePathCallback = null
         if (callback == null) return@registerForActivityResult
-        val uris: Array<Uri>? = when {
-            result.resultCode != Activity.RESULT_OK -> null
-            result.data?.clipData != null -> {
-                val clip = result.data!!.clipData!!
-                Array(clip.itemCount) { i -> clip.getItemAt(i).uri }
+
+        try {
+            val uris: Array<Uri>? = when {
+                result.resultCode != Activity.RESULT_OK -> null
+                result.data?.clipData != null -> {
+                    val clip = result.data!!.clipData!!
+                    Array(clip.itemCount) { i -> makeReadableUri(clip.getItemAt(i).uri) }
+                }
+                result.data?.data != null -> arrayOf(makeReadableUri(result.data!!.data!!))
+                cameraImageUri != null && cameraImageFile != null && cameraImageFile!!.exists() && cameraImageFile!!.length() > 0 -> {
+                    // Camera wrote to our file – use the real file URI so WebView can read it
+                    arrayOf(Uri.fromFile(cameraImageFile))
+                }
+                cameraImageUri != null -> arrayOf(makeReadableUri(cameraImageUri!!))
+                else -> null
             }
-            result.data?.data != null -> arrayOf(result.data!!.data!!)
-            cameraImageUri != null -> arrayOf(cameraImageUri!!)
-            else -> null
+            callback.onReceiveValue(uris)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            callback.onReceiveValue(null)
         }
-        callback.onReceiveValue(uris)
         cameraImageUri = null
+        cameraImageFile = null
     }
 
-    private val mediaPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* results handled by next open */ }
+    /** Copy content:// URI to a private cache file so WebView (and JS FileReader) can read it. */
+    private fun makeReadableUri(uri: Uri): Uri {
+        return try {
+            if (uri.scheme == "file") return uri
+            val input = contentResolver.openInputStream(uri) ?: return uri
+            val ext = when {
+                uri.toString().contains("video") || (contentResolver.getType(uri) ?: "").startsWith("video") -> ".mp4"
+                else -> ".jpg"
+            }
+            val outFile = File(cacheDir, "dunta_upload_${System.currentTimeMillis()}$ext")
+            FileOutputStream(outFile).use { output ->
+                input.copyTo(output)
+            }
+            input.close()
+            Uri.fromFile(outFile)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            uri
+        }
+    }
+
+    private val mediaPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* next open will have them */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Keep the native launch surface identical to the DUNTA splash instead of black.
         window.setBackgroundDrawableResource(com.dunta.taxi.R.drawable.dunta_splash)
         if (Build.VERSION.SDK_INT >= 23) {
             window.statusBarColor = Color.rgb(11, 15, 13)
@@ -79,7 +112,6 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         web = WebView(this).apply {
-            // Transparent until the real DUNTA HTML splash is painted.
             setBackgroundColor(Color.TRANSPARENT)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -87,11 +119,14 @@ class MainActivity : AppCompatActivity() {
             settings.setGeolocationEnabled(true)
             settings.allowFileAccess = true
             settings.allowContentAccess = true
+            // Critical for reading local files selected via file chooser
+            @Suppress("DEPRECATION")
+            settings.allowFileAccessFromFileURLs = true
+            @Suppress("DEPRECATION")
+            settings.allowUniversalAccessFromFileURLs = true
             settings.setSupportZoom(false)
             settings.builtInZoomControls = false
             settings.displayZoomControls = false
-            // Needed for camera / getUserMedia in WebView
-            settings.mediaPlaybackRequiresUserGesture = false
             isHorizontalScrollBarEnabled = false
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -113,7 +148,6 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onPermissionRequest(request: PermissionRequest?) {
                     if (request == null) return
-                    // Grant camera / microphone for getUserMedia (video/photo)
                     val resources = request.resources
                     val needed = mutableListOf<String>()
                     if (resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
@@ -126,11 +160,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (needed.isNotEmpty()) {
                         mediaPermissions.launch(needed.toTypedArray())
-                        // Grant after user responds – for simplicity grant now if already have, else re-request will be needed on next try
-                        request.grant(resources)
-                    } else {
-                        request.grant(resources)
                     }
+                    // Always grant so getUserMedia works after permission is accepted
+                    request.grant(resources)
                 }
 
                 override fun onShowFileChooser(
@@ -141,7 +173,6 @@ class MainActivity : AppCompatActivity() {
                     this@MainActivity.filePathCallback?.onReceiveValue(null)
                     this@MainActivity.filePathCallback = filePathCallback
 
-                    // Ensure media permissions
                     val perms = mutableListOf<String>()
                     if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                         perms.add(Manifest.permission.CAMERA)
@@ -168,23 +199,47 @@ class MainActivity : AppCompatActivity() {
 
                     val intents = mutableListOf<Intent>()
 
-                    // Gallery / files
                     val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        type = if (isVideo && !isImage) "video/*" else if (isImage && !isVideo) "image/*" else "*/*"
+                        type = when {
+                            isVideo && !isImage -> "video/*"
+                            isImage && !isVideo -> "image/*"
+                            else -> "*/*"
+                        }
                         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
                     }
                     intents.add(contentIntent)
 
-                    // Camera photo
+                    // Also offer ACTION_PICK for gallery (more reliable on some devices)
+                    if (isImage || acceptTypes.isEmpty() || acceptTypes.any { it == "*/*" }) {
+                        intents.add(Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI).apply {
+                            type = "image/*"
+                        })
+                    }
+                    if (isVideo || acceptTypes.isEmpty() || acceptTypes.any { it == "*/*" }) {
+                        intents.add(Intent(Intent.ACTION_PICK, MediaStore.Video.Media.EXTERNAL_CONTENT_URI).apply {
+                            type = "video/*"
+                        })
+                    }
+
+                    // Camera photo – write to a real file we control
                     if (isImage || acceptTypes.isEmpty() || acceptTypes.any { it == "*/*" }) {
                         try {
-                            val photoFile = File.createTempFile("dunta_capture_", ".jpg", getExternalFilesDir(Environment.DIRECTORY_PICTURES))
+                            val photoFile = File.createTempFile("dunta_cam_", ".jpg", getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                                ?: cacheDir)
+                            cameraImageFile = photoFile
                             cameraImageUri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", photoFile)
                             val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
                                 putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri)
-                                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            // Grant to camera app
+                            cameraImageUri?.let { uri ->
+                                grantUriPermission("com.android.camera", uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                // Also try common camera packages
+                                packageManager.queryIntentActivities(cameraIntent, PackageManager.MATCH_DEFAULT_ONLY).forEach { resolve ->
+                                    grantUriPermission(resolve.activityInfo.packageName, uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
                             }
                             intents.add(cameraIntent)
                         } catch (_: Exception) {}
@@ -193,16 +248,18 @@ class MainActivity : AppCompatActivity() {
                     // Camera video
                     if (isVideo || acceptTypes.isEmpty() || acceptTypes.any { it == "*/*" }) {
                         try {
-                            val videoIntent = Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                            intents.add(Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
                                 putExtra(MediaStore.EXTRA_DURATION_LIMIT, 60)
-                            }
-                            intents.add(videoIntent)
+                                putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1)
+                            })
                         } catch (_: Exception) {}
                     }
 
                     val chooser = Intent(Intent.ACTION_CHOOSER).apply {
                         putExtra(Intent.EXTRA_INTENT, intents.firstOrNull() ?: contentIntent)
-                        putExtra(Intent.EXTRA_INITIAL_INTENTS, intents.drop(1).toTypedArray())
+                        if (intents.size > 1) {
+                            putExtra(Intent.EXTRA_INITIAL_INTENTS, intents.drop(1).toTypedArray())
+                        }
                         putExtra(Intent.EXTRA_TITLE, "Escolher foto / vídeo")
                     }
                     try {

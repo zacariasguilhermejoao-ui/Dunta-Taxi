@@ -251,6 +251,10 @@ class MainActivity : AppCompatActivity() {
             val code = assets.open("dunta-fixes.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
             view.evaluateJavascript(code, null)
         } catch (e: Exception) { e.printStackTrace() }
+        try {
+            val trip = assets.open("dunta-trip.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            view.evaluateJavascript(trip, null)
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun hasLocationPermission(): Boolean =
@@ -331,6 +335,11 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun markRideHandled(rideId: String) {
             DuntaFirebaseMessagingService.markRideHandled(this@MainActivity, rideId)
+        }
+
+        @JavascriptInterface
+        fun clearActiveRide() {
+            DuntaFirebaseMessagingService.clearActiveRide(this@MainActivity)
         }
 
         @JavascriptInterface

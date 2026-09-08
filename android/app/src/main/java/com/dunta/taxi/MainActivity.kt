@@ -40,9 +40,25 @@ class MainActivity : AppCompatActivity() {
     private var cameraImageUri: Uri? = null
     private var cameraImageFile: File? = null
 
+    private var pendingGeoOrigin: String? = null
+    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
+
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true || result[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            ContextCompat.startForegroundService(this, Intent(this, DriverLocationService::class.java))
+        val granted = result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            pendingGeoCallback?.invoke(pendingGeoOrigin, true, false)
+            pendingGeoCallback = null
+            pendingGeoOrigin = null
+            ensureSystemLocationOn()
+            startWebGps()
+            try {
+                ContextCompat.startForegroundService(this, Intent(this, DriverLocationService::class.java))
+            } catch (_: Exception) {}
+        } else {
+            pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
+            pendingGeoCallback = null
+            pendingGeoOrigin = null
         }
     }
 
@@ -139,12 +155,23 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView, url: String?) {
                     super.onPageFinished(view, url)
                     injectDuntaFixes(view)
+                    if (hasLocationPermission()) {
+                        ensureSystemLocationOn()
+                        view.postDelayed({ startWebGps() }, 600)
+                    }
                 }
             }
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                    if (hasLocationPermission()) callback?.invoke(origin, true, false)
-                    else requestLocationAndNotifications()
+                    if (hasLocationPermission()) {
+                        callback?.invoke(origin, true, false)
+                        ensureSystemLocationOn()
+                        startWebGps()
+                    } else {
+                        pendingGeoOrigin = origin
+                        pendingGeoCallback = callback
+                        requestLocationAndNotifications()
+                    }
                 }
                 override fun onPermissionRequest(request: PermissionRequest?) {
                     if (request == null) return
@@ -265,6 +292,40 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
+    /** Pede ao sistema para ligar a localização (GPS) se estiver desligada */
+    private fun ensureSystemLocationOn() {
+        try {
+            val lm = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
+            val enabled = try {
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                    lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+            } catch (_: Exception) { true }
+            if (!enabled) {
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+    }
+
+    /** Arranca o GPS no WebView assim que a permissão é dada */
+    private fun startWebGps() {
+        try {
+            if (!::web.isInitialized) return
+            web.post {
+                val js = "(function(){try{" +
+                    "if(typeof startGPS==='function')startGPS();" +
+                    "if(typeof requestMyLocation==='function')requestMyLocation(true);" +
+                    "if(typeof initMap==='function'&&!window.duntaMap)initMap();" +
+                    "if(typeof loadNearbyDrivers==='function')setTimeout(loadNearbyDrivers,800);" +
+                    "}catch(e){console.error(e)}})();"
+                web.evaluateJavascript(js, null)
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun hasLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -279,6 +340,10 @@ class MainActivity : AppCompatActivity() {
             p.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (p.isNotEmpty()) permissions.launch(p.toTypedArray())
+        else {
+            ensureSystemLocationOn()
+            startWebGps()
+        }
     }
 
     private fun registerFcmToken() {

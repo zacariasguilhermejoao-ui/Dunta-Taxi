@@ -21,6 +21,11 @@ try{
       'body.dunta-in-trip #live-badge,body.dunta-in-trip #eta,body.dunta-in-trip #ban,body.dunta-in-trip #dunta-driver-bar,body.dunta-in-trip #dunta-driver-trip{display:none!important}',
       'body.dunta-in-trip #home .hh,body.dunta-in-trip #home .svc,body.dunta-in-trip #home .search-box,body.dunta-in-trip #nav,body.dunta-in-trip .bottom-nav,body.dunta-in-trip #tabs,body.dunta-in-trip .fab{display:none!important}',
       'body.dunta-in-trip #map,body.dunta-in-trip #map-wrap,body.dunta-in-trip .leaflet-container{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:1!important;border-radius:0!important}',
+      '#dunta-driver-bar,#dunta-driver-trip{display:none!important}',
+      'body.dunta-driver-mode #dunta-driver-bar{display:none!important}',
+      '#dunta-driver-more{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:14px;z-index:10001;width:44px;height:44px;border:0;border-radius:50%;background:rgba(11,15,13,.92);color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.35);display:none;place-items:center;cursor:pointer}',
+      'body.dunta-driver-mode:not(.dunta-in-trip) #dunta-driver-more{display:grid}',
+      'body.dunta-in-trip #dunta-driver-more{display:none!important}',
       '#live-badge{display:none!important}',
       '#dunta-trip-top{position:fixed;top:0;left:0;right:0;z-index:10001;display:none;padding:calc(12px + env(safe-area-inset-top,0px)) 14px 10px;pointer-events:none}',
       '#dunta-trip-top.show{display:flex;justify-content:space-between;align-items:center}',
@@ -83,23 +88,82 @@ window.duntaBuildTripMenu=function(){
   var s=null;try{s=getSession&&getSession()}catch(e){}
   var isDriver=s&&s.role==='driver';
   var phase=window.duntaTripPhase||'pickup';
+  var inTrip=!!(window.duntaActiveRide&&rideIsFresh(window.duntaActiveRide));
   var html='';
   if(isDriver){
-    html+='<button type="button" onclick="event.stopPropagation();duntaCallPassenger();duntaCloseTripMenu()"><i class="fa-solid fa-phone"></i> Ligar ao passageiro</button>';
-    if(phase!=='in_trip'){
-      html+='<button type="button" class="ok" onclick="event.stopPropagation();duntaStartTrip();duntaCloseTripMenu()"><i class="fa-solid fa-play"></i> Começar viagem</button>';
-    }else{
-      html+='<button type="button" class="ok" onclick="event.stopPropagation();duntaCompleteTrip();duntaCloseTripMenu()"><i class="fa-solid fa-flag-checkered"></i> Concluir viagem</button>';
+    var on=!!(s&&s.online);
+    html+='<button type="button" class="'+(on?'danger':'ok')+'" onclick="event.stopPropagation();duntaToggleOnlineFromMenu()"><i class="fa-solid '+(on?'fa-toggle-on':'fa-toggle-off')+'"></i> '+(on?'Ficar offline':'Ficar online')+'</button>';
+    html+='<div class="sep"></div>';
+    if(inTrip){
+      html+='<button type="button" onclick="event.stopPropagation();duntaCallPassenger();duntaCloseTripMenu()"><i class="fa-solid fa-phone"></i> Ligar ao passageiro</button>';
+      if(phase!=='in_trip'){
+        html+='<button type="button" class="ok" onclick="event.stopPropagation();duntaStartTrip();duntaCloseTripMenu()"><i class="fa-solid fa-play"></i> Começar viagem</button>';
+      }else{
+        html+='<button type="button" class="ok" onclick="event.stopPropagation();duntaCompleteTrip();duntaCloseTripMenu()"><i class="fa-solid fa-flag-checkered"></i> Concluir viagem</button>';
+      }
+      html+='<div class="sep"></div>';
+      html+='<button type="button" class="danger" onclick="event.stopPropagation();duntaCancelRide();duntaCloseTripMenu()"><i class="fa-solid fa-xmark"></i> Cancelar viagem</button>';
     }
-    html+='<div class="sep"></div>';
-    html+='<button type="button" class="danger" onclick="event.stopPropagation();duntaCancelRide();duntaCloseTripMenu()"><i class="fa-solid fa-xmark"></i> Cancelar viagem</button>';
   }else{
-    html+='<button type="button" onclick="event.stopPropagation();duntaCallDriver();duntaCloseTripMenu()"><i class="fa-solid fa-phone"></i> Ligar ao motorista</button>';
-    html+='<div class="sep"></div>';
-    html+='<button type="button" class="danger" onclick="event.stopPropagation();duntaCancelRide();duntaCloseTripMenu()"><i class="fa-solid fa-xmark"></i> Cancelar viagem</button>';
+    if(inTrip){
+      html+='<button type="button" onclick="event.stopPropagation();duntaCallDriver();duntaCloseTripMenu()"><i class="fa-solid fa-phone"></i> Ligar ao motorista</button>';
+      html+='<div class="sep"></div>';
+      html+='<button type="button" class="danger" onclick="event.stopPropagation();duntaCancelRide();duntaCloseTripMenu()"><i class="fa-solid fa-xmark"></i> Cancelar viagem</button>';
+    }
   }
+  if(!html)html='<button type="button" onclick="event.stopPropagation();duntaCloseTripMenu()">Fechar</button>';
   m.innerHTML=html;
 };
+
+window.duntaToggleOnlineFromMenu=function(){
+  try{
+    if(typeof toggleOnline==='function')toggleOnline();
+    else {
+      var s=getSession&&getSession();
+      if(s){
+        s.online=!s.online;
+        if(s.online&&typeof startDriverSync==='function')startDriverSync();
+        if(!s.online&&typeof stopDriverSync==='function')stopDriverSync();
+      }
+    }
+  }catch(e){console.error(e)}
+  setTimeout(function(){
+    try{if(typeof updUI==='function')updUI()}catch(e){}
+    duntaBuildTripMenu();
+    if(typeof toast==='function'){
+      var s2=null;try{s2=getSession&&getSession()}catch(e){}
+      toast(s2&&s2.online?'Está online':'Está offline');
+    }
+  },400);
+  duntaCloseTripMenu();
+};
+
+function ensureDriverMoreBtn(){
+  if(!document.getElementById('dunta-driver-more')){
+    var b=document.createElement('button');
+    b.id='dunta-driver-more';
+    b.type='button';
+    b.setAttribute('aria-label','Menu');
+    b.innerHTML='<i class="fa-solid fa-ellipsis-vertical"></i>';
+    b.onclick=function(e){e.stopPropagation();ensureTripChrome();duntaToggleTripMenu()};
+    document.body.appendChild(b);
+  }
+  try{
+    var s=getSession&&getSession();
+    if(s&&s.role==='driver')document.body.classList.add('dunta-driver-mode');
+    else document.body.classList.remove('dunta-driver-mode');
+  }catch(e){}
+}
+setTimeout(ensureDriverMoreBtn,800);
+setInterval(function(){
+  try{
+    ensureDriverMoreBtn();
+    var bar=document.getElementById('dunta-driver-bar');
+    if(bar){bar.style.display='none';bar.classList.remove('show')}
+    var trip=document.getElementById('dunta-driver-trip');
+    if(trip){trip.style.display='none';trip.classList.remove('show')}
+  }catch(e){}
+},2000);
 
 window.duntaCloseTripMenu=function(){
   var m=document.getElementById('dunta-trip-menu');

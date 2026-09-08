@@ -1,8 +1,5 @@
 (function(){
-try{
-if(window.__duntaTripLoaded)return;
-window.__duntaTripLoaded=1;
-}catch(e){}
+try{if(window.__duntaTripLoaded)return;window.__duntaTripLoaded=1;}catch(e){}
 
 var MAX_RIDE_AGE_MS=90*60*1000;
 
@@ -18,23 +15,118 @@ function rideIsFresh(r){
 }
 
 try{
-if(!document.getElementById('dunta-trip-css')){
-  var st=document.createElement('style');st.id='dunta-trip-css';
-  st.textContent=['body.dunta-in-trip #dunta-driver-bar{display:none!important}','body.dunta-in-trip #home .hh,body.dunta-in-trip #home .svc,body.dunta-in-trip #home .search-box,body.dunta-in-trip #nav,body.dunta-in-trip .bottom-nav,body.dunta-in-trip #tabs{display:none!important}','body.dunta-in-trip #map,body.dunta-in-trip #map-wrap,body.dunta-in-trip .leaflet-container{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:1!important;border-radius:0!important}','#dunta-trip-panel{position:fixed;left:12px;right:12px;bottom:18px;z-index:10000;background:linear-gradient(180deg,#1a1f1c,#0B0F0D);border:1px solid #2a332e;border-radius:18px;padding:14px;color:#fff;display:none;box-shadow:0 12px 40px rgba(0,0,0,.5)}','#dunta-trip-panel.show{display:block}','#dunta-trip-panel .tp-title{font-weight:800;font-size:15px;margin-bottom:4px}','#dunta-trip-panel .tp-sub{font-size:12px;opacity:.8;margin-bottom:12px;line-height:1.4}','#dunta-trip-panel .tp-row{display:flex;gap:8px;flex-wrap:wrap}','#dunta-trip-panel button{flex:1;min-width:100px;border:0;border-radius:12px;padding:12px 10px;font-weight:800;cursor:pointer}','.tp-call{background:#2563EB;color:#fff}','.tp-start{background:#16A34A;color:#fff}','.tp-cancel{background:#374151;color:#fff}','.tp-done{background:#C10F06;color:#fff}'].join('');
-  document.head.appendChild(st);
-}
+  if(!document.getElementById('dunta-trip-css')){
+    var st=document.createElement('style');st.id='dunta-trip-css';
+    st.textContent=[
+      'body.dunta-in-trip #live-badge,body.dunta-in-trip #eta,body.dunta-in-trip #ban,body.dunta-in-trip #dunta-driver-bar,body.dunta-in-trip #dunta-driver-trip{display:none!important}',
+      'body.dunta-in-trip #home .hh,body.dunta-in-trip #home .svc,body.dunta-in-trip #home .search-box,body.dunta-in-trip #nav,body.dunta-in-trip .bottom-nav,body.dunta-in-trip #tabs,body.dunta-in-trip .fab{display:none!important}',
+      'body.dunta-in-trip #map,body.dunta-in-trip #map-wrap,body.dunta-in-trip .leaflet-container{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;z-index:1!important;border-radius:0!important}',
+      '#live-badge{display:none!important}',
+      '#dunta-trip-top{position:fixed;top:0;left:0;right:0;z-index:10001;display:none;padding:calc(12px + env(safe-area-inset-top,0px)) 14px 10px;pointer-events:none}',
+      '#dunta-trip-top.show{display:flex;justify-content:space-between;align-items:center}',
+      '#dunta-trip-top button{pointer-events:auto;width:44px;height:44px;border:0;border-radius:50%;background:rgba(11,15,13,.92);color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.35);display:grid;place-items:center;cursor:pointer}',
+      '#dunta-trip-top button i{font-size:18px}',
+      '#dunta-trip-menu{position:fixed;top:calc(58px + env(safe-area-inset-top,0px));right:14px;z-index:10002;background:#111827;border:1px solid #2a332e;border-radius:14px;padding:8px;min-width:200px;display:none;box-shadow:0 12px 32px rgba(0,0,0,.45)}',
+      '#dunta-trip-menu.show{display:block}',
+      '#dunta-trip-menu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;color:#fff;padding:12px 14px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;text-align:left}',
+      '#dunta-trip-menu button:active{background:#1f2937}',
+      '#dunta-trip-menu button.danger{color:#fca5a5}',
+      '#dunta-trip-menu button.ok{color:#86efac}',
+      '#dunta-trip-menu .sep{height:1px;background:#2a332e;margin:4px 0}',
+      '#dunta-trip-chip{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:10000;display:none;background:rgba(11,15,13,.92);color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:90%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '#dunta-trip-chip.show{display:block}'
+    ].join('');
+    document.head.appendChild(st);
+  }
 }catch(e){}
 
-function ensureTripPanel(){
-  if(document.getElementById('dunta-trip-panel'))return;
-  var p=document.createElement('div');p.id='dunta-trip-panel';
-  p.innerHTML='<div class="tp-title" id="tp-title">Viagem</div><div class="tp-sub" id="tp-sub">—</div><div class="tp-row" id="tp-actions"></div>';
-  document.body.appendChild(p);
+try{var lb=document.getElementById('live-badge');if(lb)lb.style.display='none'}catch(e){}
+
+function ensureTripChrome(){
+  if(!document.getElementById('dunta-trip-top')){
+    var top=document.createElement('div');top.id='dunta-trip-top';
+    top.innerHTML='<button type="button" id="dunta-trip-back" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>'+
+      '<button type="button" id="dunta-trip-more" aria-label="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button>';
+    document.body.appendChild(top);
+    document.getElementById('dunta-trip-back').onclick=function(e){e.stopPropagation();duntaTripBack()};
+    document.getElementById('dunta-trip-more').onclick=function(e){e.stopPropagation();duntaToggleTripMenu()};
+  }
+  if(!document.getElementById('dunta-trip-menu')){
+    var menu=document.createElement('div');menu.id='dunta-trip-menu';
+    document.body.appendChild(menu);
+  }
+  if(!document.getElementById('dunta-trip-chip')){
+    var chip=document.createElement('div');chip.id='dunta-trip-chip';
+    document.body.appendChild(chip);
+  }
+  if(!window.__duntaMenuCloseBound){
+    window.__duntaMenuCloseBound=1;
+    document.addEventListener('click',function(){
+      var m=document.getElementById('dunta-trip-menu');
+      if(m)m.classList.remove('show');
+    });
+  }
 }
+
+window.duntaToggleTripMenu=function(){
+  ensureTripChrome();
+  var m=document.getElementById('dunta-trip-menu');
+  if(!m)return;
+  if(m.classList.contains('show')){m.classList.remove('show');return}
+  duntaBuildTripMenu();
+  m.classList.add('show');
+};
+
+window.duntaBuildTripMenu=function(){
+  var m=document.getElementById('dunta-trip-menu');
+  if(!m)return;
+  var s=null;try{s=getSession&&getSession()}catch(e){}
+  var isDriver=s&&s.role==='driver';
+  var phase=window.duntaTripPhase||'pickup';
+  var html='';
+  if(isDriver){
+    html+='<button type="button" onclick="event.stopPropagation();duntaCallPassenger();duntaCloseTripMenu()"><i class="fa-solid fa-phone"></i> Ligar ao passageiro</button>';
+    if(phase!=='in_trip'){
+      html+='<button type="button" class="ok" onclick="event.stopPropagation();duntaStartTrip();duntaCloseTripMenu()"><i class="fa-solid fa-play"></i> Começar viagem</button>';
+    }else{
+      html+='<button type="button" class="ok" onclick="event.stopPropagation();duntaCompleteTrip();duntaCloseTripMenu()"><i class="fa-solid fa-flag-checkered"></i> Concluir viagem</button>';
+    }
+    html+='<div class="sep"></div>';
+    html+='<button type="button" class="danger" onclick="event.stopPropagation();duntaCancelRide();duntaCloseTripMenu()"><i class="fa-solid fa-xmark"></i> Cancelar viagem</button>';
+  }else{
+    html+='<button type="button" onclick="event.stopPropagation();duntaCallDriver();duntaCloseTripMenu()"><i class="fa-solid fa-phone"></i> Ligar ao motorista</button>';
+    html+='<div class="sep"></div>';
+    html+='<button type="button" class="danger" onclick="event.stopPropagation();duntaCancelRide();duntaCloseTripMenu()"><i class="fa-solid fa-xmark"></i> Cancelar viagem</button>';
+  }
+  m.innerHTML=html;
+};
+
+window.duntaCloseTripMenu=function(){
+  var m=document.getElementById('dunta-trip-menu');
+  if(m)m.classList.remove('show');
+};
+
+window.duntaTripBack=function(){
+  duntaCloseTripMenu();
+  try{
+    document.body.classList.remove('dunta-in-trip');
+    var top=document.getElementById('dunta-trip-top');
+    if(top)top.classList.remove('show');
+    var chip=document.getElementById('dunta-trip-chip');
+    if(chip)chip.classList.remove('show');
+    setTimeout(function(){try{if(window.duntaMap)duntaMap.invalidateSize()}catch(e){}},200);
+    if(typeof toast==='function')toast('Mapa em modo normal · viagem continua ativa');
+  }catch(e){}
+};
 
 window.duntaEnterTripMap=function(){
   try{
+    ensureTripChrome();
     document.body.classList.add('dunta-in-trip');
+    var top=document.getElementById('dunta-trip-top');
+    if(top)top.classList.add('show');
+    var lb=document.getElementById('live-badge');
+    if(lb)lb.style.display='none';
     setTimeout(function(){try{if(window.duntaMap)duntaMap.invalidateSize()}catch(e){}},200);
   }catch(e){}
 };
@@ -42,8 +134,14 @@ window.duntaEnterTripMap=function(){
 window.duntaExitTripMap=function(){
   try{
     document.body.classList.remove('dunta-in-trip');
-    var p=document.getElementById('dunta-trip-panel');
-    if(p)p.classList.remove('show');
+    var top=document.getElementById('dunta-trip-top');
+    if(top)top.classList.remove('show');
+    var menu=document.getElementById('dunta-trip-menu');
+    if(menu)menu.classList.remove('show');
+    var chip=document.getElementById('dunta-trip-chip');
+    if(chip)chip.classList.remove('show');
+    var old=document.getElementById('dunta-trip-panel');
+    if(old)old.classList.remove('show');
     setTimeout(function(){try{if(window.duntaMap)duntaMap.invalidateSize()}catch(e){}},200);
   }catch(e){}
 };
@@ -54,22 +152,10 @@ if(typeof window.duntaCallNumber!=='function'){
       if(!num){if(typeof toast==='function')toast('Número indisponível');return}
       var clean=String(num).replace(/[^0-9+]/g,'');
       if(!clean){if(typeof toast==='function')toast('Número inválido');return}
-      try{
-        if(window.DuntaNative && typeof DuntaNative.dialPhone==='function'){
-          DuntaNative.dialPhone(clean);
-          return;
-        }
-      }catch(e){}
-      var a=document.createElement('a');
-      a.href='tel:'+clean;
-      a.style.display='none';
-      document.body.appendChild(a);
-      a.click();
+      try{if(window.DuntaNative&&typeof DuntaNative.dialPhone==='function'){DuntaNative.dialPhone(clean);return}}catch(e){}
+      var a=document.createElement('a');a.href='tel:'+clean;a.style.display='none';document.body.appendChild(a);a.click();
       setTimeout(function(){try{a.remove()}catch(e){}},500);
-    }catch(e){
-      console.error(e);
-      try{window.location.href='tel:'+String(num).replace(/[^0-9+]/g,'')}catch(x){}
-    }
+    }catch(e){try{window.location.href='tel:'+String(num).replace(/[^0-9+]/g,'')}catch(x){}}
   };
 }
 if(typeof window.duntaCallPassenger!=='function'){
@@ -79,7 +165,7 @@ if(typeof window.duntaCallPassenger!=='function'){
       var phone=(ride&&(ride.passenger_phone||ride.phone))||'';
       if(!phone){if(typeof toast==='function')toast('Telefone do passageiro indisponível');return}
       duntaCallNumber(phone);
-    }catch(e){console.error(e);if(typeof toast==='function')toast('Não foi possível ligar')}
+    }catch(e){if(typeof toast==='function')toast('Não foi possível ligar')}
   };
 }
 if(typeof window.duntaCallDriver!=='function'){
@@ -89,7 +175,7 @@ if(typeof window.duntaCallDriver!=='function'){
       var phone=(ride&&(ride.driver_phone||ride.phone))||'';
       if(!phone){if(typeof toast==='function')toast('Telefone do motorista indisponível');return}
       duntaCallNumber(phone);
-    }catch(e){console.error(e);if(typeof toast==='function')toast('Não foi possível ligar')}
+    }catch(e){if(typeof toast==='function')toast('Não foi possível ligar')}
   };
 }
 
@@ -116,29 +202,20 @@ window.duntaCancelRide=async function(){
     }
     if(!confirm('Cancelar esta viagem?'))return;
     if(typeof toast==='function')toast('A cancelar…');
-    var res=await duntaSupabase.from('ride_requests').update({status:'cancelled',updated_at:new Date().toISOString()}).eq('id',ride.id).select().maybeSingle();
+    var res=await duntaSupabase.from('ride_requests').update({status:'cancelled',updated_at:new Date().toISOString()}).eq('id',ride.id);
     if(res&&res.error){
-      console.error(res.error);
       var res2=await duntaSupabase.from('ride_requests').update({status:'cancelled',updated_at:new Date().toISOString()}).eq('id',ride.id);
-      if(res2&&res2.error){
-        if(typeof toast==='function')toast('Não foi possível cancelar');
-        return;
-      }
+      if(res2&&res2.error){if(typeof toast==='function')toast('Não foi possível cancelar');return}
     }
     window.duntaActiveRide=null;
     window.duntaTripPhase='pickup';
     duntaExitTripMap();
     try{if(typeof stopRideDriverWatch==='function')stopRideDriverWatch()}catch(e){}
-    if(typeof showBan==='function')showBan('Viagem cancelada');
-    setTimeout(function(){try{if(typeof showBan==='function')showBan('')}catch(e){}},2500);
     if(typeof toast==='function')toast('Viagem cancelada');
     try{if(typeof updUI==='function')updUI()}catch(e){}
     try{if(window.DuntaNative&&DuntaNative.markRideHandled)DuntaNative.markRideHandled(String(ride.id))}catch(e){}
     try{if(window.DuntaNative&&DuntaNative.clearActiveRide)DuntaNative.clearActiveRide()}catch(e){}
-  }catch(e){
-    console.error(e);
-    if(typeof toast==='function')toast('Erro ao cancelar');
-  }
+  }catch(e){console.error(e);if(typeof toast==='function')toast('Erro ao cancelar')}
 };
 
 window.duntaStartTrip=async function(){
@@ -175,8 +252,6 @@ window.duntaCompleteTrip=async function(){
     window.duntaTripPhase='pickup';
     duntaExitTripMap();
     try{if(typeof stopRideDriverWatch==='function')stopRideDriverWatch()}catch(e){}
-    if(typeof showBan==='function')showBan('Viagem concluída');
-    setTimeout(function(){try{if(typeof showBan==='function')showBan('')}catch(e){}},3000);
     if(typeof toast==='function')toast('Viagem concluída');
     try{if(typeof updUI==='function')updUI()}catch(e){}
     try{if(window.DuntaNative&&DuntaNative.clearActiveRide)DuntaNative.clearActiveRide()}catch(e){}
@@ -185,37 +260,27 @@ window.duntaCompleteTrip=async function(){
 
 window.duntaRefreshTripPanel=function(){
   try{
-    ensureTripPanel();
+    ensureTripChrome();
     var ride=window.duntaActiveRide;
-    var panel=document.getElementById('dunta-trip-panel');
-    var title=document.getElementById('tp-title');
-    var sub=document.getElementById('tp-sub');
-    var actions=document.getElementById('tp-actions');
+    var chip=document.getElementById('dunta-trip-chip');
+    var top=document.getElementById('dunta-trip-top');
     if(!ride||!rideIsFresh(ride)||ride.status!=='accepted'){
-      if(panel)panel.classList.remove('show');
+      if(chip)chip.classList.remove('show');
       if(!rideIsFresh(ride)&&ride){window.duntaActiveRide=null;duntaExitTripMap()}
       return;
     }
-    var s=getSession&&getSession();
+    duntaEnterTripMap();
+    if(top)top.classList.add('show');
+    var s=null;try{s=getSession&&getSession()}catch(e){}
     var isDriver=s&&s.role==='driver';
     var phase=window.duntaTripPhase||'pickup';
-    panel.classList.add('show');
-    duntaEnterTripMap();
+    var label='';
     if(isDriver){
-      if(phase==='in_trip'){
-        if(title)title.textContent='Em viagem';
-        if(sub)sub.textContent='Destino: '+(ride.destination||'—')+' · Passageiro: '+(ride.passenger_name||'—');
-        if(actions)actions.innerHTML='<button class="tp-call" type="button" onclick="try{duntaCallPassenger()}catch(e){}"><i class="fa-solid fa-phone"></i> Ligar</button><button class="tp-done" type="button" onclick="try{duntaCompleteTrip()}catch(e){}">Concluir</button>';
-      }else{
-        if(title)title.textContent='A caminho do passageiro';
-        if(sub)sub.textContent=(ride.passenger_name||'Passageiro')+(ride.passenger_phone?' · '+ride.passenger_phone:'')+'<br>Destino: '+(ride.destination||'—');
-        if(actions)actions.innerHTML='<button class="tp-call" type="button" onclick="try{duntaCallPassenger()}catch(e){}"><i class="fa-solid fa-phone"></i> Ligar</button><button class="tp-start" type="button" onclick="try{duntaStartTrip()}catch(e){}">Começar viagem</button><button class="tp-cancel" type="button" onclick="try{duntaCancelRide()}catch(e){}">Cancelar</button>';
-      }
+      label=phase==='in_trip'?'Em viagem · '+(ride.destination||'') : 'A caminho · '+(ride.passenger_name||'Passageiro');
     }else{
-      if(title)title.textContent=phase==='in_trip'?'Em viagem':'Motorista a caminho';
-      if(sub)sub.textContent=(ride.driver_name||'Motorista')+(ride.driver_phone?' · '+ride.driver_phone:'')+' · '+(ride.driver_vehicle_type==='mota'?'Mototáxi':'Táxi')+'<br>Destino: '+(ride.destination||'—');
-      if(actions)actions.innerHTML='<button class="tp-call" type="button" onclick="try{duntaCallDriver()}catch(e){}"><i class="fa-solid fa-phone"></i> Ligar</button><button class="tp-cancel" type="button" onclick="try{duntaCancelRide()}catch(e){}">Cancelar viagem</button>';
+      label=phase==='in_trip'?'Em viagem · '+(ride.destination||'') : 'Motorista a caminho · '+(ride.driver_name||'');
     }
+    if(chip){chip.textContent=label;chip.classList.add('show')}
   }catch(e){console.error('trip panel',e)}
 };
 
@@ -257,11 +322,7 @@ if(typeof handleRideUpdate==='function'&&!window.__duntaHandleRideFixed){
   window.__duntaHandleRideFixed=1;
   var _hru=handleRideUpdate;
   window.handleRideUpdate=function(r){
-    try{
-      if(r&&r.status==='accepted'&&!rideIsFresh(r)){
-        return;
-      }
-    }catch(e){}
+    try{if(r&&r.status==='accepted'&&!rideIsFresh(r))return}catch(e){}
     try{_hru(r)}catch(e){console.error(e)}
     try{
       if(!r)return;
@@ -297,14 +358,13 @@ function duntaClearStaleTripUI(){
     }
     if(!window.duntaActiveRide||!rideIsFresh(window.duntaActiveRide)){
       duntaExitTripMap();
-      var panel=document.getElementById('dunta-trip-panel');
-      if(panel)panel.classList.remove('show');
     }
+    var lb=document.getElementById('live-badge');
+    if(lb)lb.style.display='none';
   }catch(e){}
 }
-
-setTimeout(duntaClearStaleTripUI,800);
-setTimeout(duntaClearStaleTripUI,2500);
+setTimeout(duntaClearStaleTripUI,600);
+setTimeout(duntaClearStaleTripUI,2000);
 
 if(!window.__duntaRidePoll){
   window.__duntaRidePoll=1;
@@ -314,8 +374,7 @@ if(!window.__duntaRidePoll){
       if(!s||!window.duntaSupabase)return;
       if(window.duntaActiveRide&&rideIsFresh(window.duntaActiveRide))return;
       if(window.duntaActiveRide&&!rideIsFresh(window.duntaActiveRide)){
-        window.duntaActiveRide=null;
-        duntaExitTripMap();
+        window.duntaActiveRide=null;duntaExitTripMap();
       }
       var since=new Date(Date.now()-MAX_RIDE_AGE_MS).toISOString();
       var q=duntaSupabase.from('ride_requests').select('*').eq('status','accepted').gte('updated_at',since).order('updated_at',{ascending:false}).limit(1);
@@ -346,5 +405,9 @@ if(typeof showDriverRequest==='function'&&!window.__duntaShowReqAgeFixed){
     return _sr(req);
   };
 }
+
+setInterval(function(){
+  try{var lb=document.getElementById('live-badge');if(lb)lb.style.display='none'}catch(e){}
+},3000);
 
 })();

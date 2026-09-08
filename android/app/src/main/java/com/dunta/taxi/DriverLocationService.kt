@@ -24,18 +24,20 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
 
 class DriverLocationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var fused: FusedLocationProviderClient
     private var lastLat = 0.0
     private var lastLng = 0.0
-    private var lastRide = ""
     private var tokenCheckedAt = 0L
+    private val notifiedRideIds = mutableSetOf<String>()
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             result.lastLocation?.let { location ->
+                if (!validCoord(location.latitude, location.longitude)) return
                 lastLat = location.latitude
                 lastLng = location.longitude
                 scope.launch { publish(location.latitude, location.longitude) }
@@ -52,15 +54,22 @@ class DriverLocationService : Service() {
         scope.launch {
             while (isActive) {
                 checkRides()
-                delay(8000)
+                delay(10000)
             }
         }
     }
 
+    private fun validCoord(lat: Double, lng: Double): Boolean {
+        if (!lat.isFinite() || !lng.isFinite()) return false
+        if (lat == 0.0 && lng == 0.0) return false
+        if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false
+        return true
+    }
+
     private fun startLocation() {
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000L)
-            .setMinUpdateIntervalMillis(5000L)
-            .setMinUpdateDistanceMeters(10f)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
+            .setMinUpdateIntervalMillis(3000L)
+            .setMinUpdateDistanceMeters(5f)
             .build()
         try {
             fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
@@ -69,6 +78,7 @@ class DriverLocationService : Service() {
     }
 
     private fun publish(lat: Double, lng: Double) = scope.launch {
+        if (!validCoord(lat, lng)) return@launch
         refreshTokenIfNeeded()
         val preferences = getSharedPreferences("dunta", 0)
         val token = preferences.getString("access_token", "") ?: return@launch
@@ -79,39 +89,69 @@ class DriverLocationService : Service() {
             put("driver_id", driverId)
             put("driver_name", preferences.getString("name", "Motorista"))
             put("phone", preferences.getString("phone", ""))
-            put("vehicle_type", preferences.getString("vehicle", "taxi"))
+            put("vehicle_type", normalizeVehicle(preferences.getString("vehicle", "taxi")))
             put("latitude", lat)
             put("longitude", lng)
             put("is_online", true)
-            put("updated_at", java.time.Instant.now().toString())
+            put("updated_at", Instant.now().toString())
         }
         request(url, "POST", token, body.toString(), "resolution=merge-duplicates,return=minimal")
+    }
+
+    private fun normalizeVehicle(v: String?): String {
+        val x = (v ?: "taxi").lowercase().trim()
+        return when {
+            x.contains("mota") || x.contains("moto") -> "mota"
+            else -> "taxi"
+        }
     }
 
     private suspend fun checkRides() {
         refreshTokenIfNeeded()
         val preferences = getSharedPreferences("dunta", 0)
         val token = preferences.getString("access_token", "") ?: return
-        val vehicle = preferences.getString("vehicle", "taxi") ?: "taxi"
+        val vehicle = normalizeVehicle(preferences.getString("vehicle", "taxi"))
+        val active = preferences.getString("active_ride_id", "")
+        if (!active.isNullOrBlank()) return
         if (token.isBlank()) return
+
+        val since = Instant.now().minusSeconds(120).toString()
         val url = "https://keonvsakkkzxnxxduacz.supabase.co/rest/v1/ride_requests" +
-            "?status=eq.pending&select=id,passenger_name,destination,vehicle_type,passenger_lat,passenger_lng" +
-            "&order=created_at.desc&limit=10"
+            "?status=eq.pending&created_at=gte.$since" +
+            "&select=id,passenger_name,destination,vehicle_type,passenger_lat,passenger_lng,created_at" +
+            "&order=created_at.desc&limit=5"
         val output = request(url, "GET", token, null, null) ?: return
         try {
             val rides = JSONArray(output)
             for (index in 0 until rides.length()) {
                 val ride = rides.getJSONObject(index)
-                val requestedVehicle = ride.optString("vehicle_type", "any")
-                if (requestedVehicle != "any" && requestedVehicle != vehicle) continue
                 val rideId = ride.optString("id")
-                if (rideId.isBlank() || rideId == lastRide) continue
+                if (rideId.isBlank() || notifiedRideIds.contains(rideId)) continue
+
+                val reqRaw = ride.optString("vehicle_type", "any").lowercase()
+                val requestedVehicle = normalizeVehicle(reqRaw)
+                if (reqRaw != "any" && reqRaw.isNotBlank() && requestedVehicle != vehicle) continue
+
                 val passengerLat = ride.optDouble("passenger_lat", Double.NaN)
                 val passengerLng = ride.optDouble("passenger_lng", Double.NaN)
-                if (!passengerLat.isFinite() || !passengerLng.isFinite()) continue
-                if (lastLat != 0.0 && distance(lastLat, lastLng, passengerLat, passengerLng) > 15.0) continue
-                lastRide = rideId
-                notifyRide(ride.optString("passenger_name", "Passageiro"), ride.optString("destination", "Destino"))
+                if (!validCoord(passengerLat, passengerLng)) continue
+                if (lastLat != 0.0 && distanceKm(lastLat, lastLng, passengerLat, passengerLng) > 15.0) continue
+
+                val created = ride.optString("created_at", "")
+                if (created.isNotBlank()) {
+                    try {
+                        val ageSec = Instant.now().epochSecond - Instant.parse(created).epochSecond
+                        if (ageSec > 120) continue
+                    } catch (_: Exception) {}
+                }
+
+                notifiedRideIds.add(rideId)
+                if (notifiedRideIds.size > 40) {
+                    val trim = notifiedRideIds.toList().takeLast(20)
+                    notifiedRideIds.clear()
+                    notifiedRideIds.addAll(trim)
+                }
+                notifyRide(ride.optString("passenger_name", "Passageiro"), ride.optString("destination", "Destino"), rideId)
                 break
             }
         } catch (_: Exception) {
@@ -161,15 +201,27 @@ class DriverLocationService : Service() {
         }
     }
 
-    private fun notifyRide(name: String, destination: String) {
+    private fun notifyRide(name: String, destination: String, rideId: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra("ride_id", rideId)
+            putExtra("notification_type", "rides")
+            putExtra("from_notification", true)
+        }
+        val pending = android.app.PendingIntent.getActivity(
+            this, rideId.hashCode(), intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
         val notification = NotificationCompat.Builder(this, "rides")
             .setSmallIcon(android.R.drawable.ic_dialog_map)
             .setContentTitle("Novo pedido DUNTA")
             .setContentText("$name → $destination")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(pending)
             .build()
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(7001, notification)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify("dunta_ride", rideId.hashCode(), notification)
     }
 
     private fun notification(text: String) = NotificationCompat.Builder(this, "location")
@@ -186,11 +238,13 @@ class DriverLocationService : Service() {
         manager.createNotificationChannel(NotificationChannel("rides", "Pedidos de corrida", NotificationManager.IMPORTANCE_HIGH))
     }
 
-    private fun distance(a: Double, b: Double, c: Double, d: Double): Double {
-        val radius = 6371000.0
-        val x = Math.toRadians(c - a)
-        val y = Math.toRadians(d - b)
-        val h = Math.sin(x / 2) * Math.sin(x / 2) + Math.cos(Math.toRadians(a)) * Math.cos(Math.toRadians(c)) * Math.sin(y / 2) * Math.sin(y / 2)
+    private fun distanceKm(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Double {
+        val radius = 6371.0
+        val x = Math.toRadians(bLat - aLat)
+        val y = Math.toRadians(bLng - aLng)
+        val h = Math.sin(x / 2) * Math.sin(x / 2) +
+            Math.cos(Math.toRadians(aLat)) * Math.cos(Math.toRadians(bLat)) *
+            Math.sin(y / 2) * Math.sin(y / 2)
         return 2 * radius * Math.asin(Math.sqrt(h))
     }
 

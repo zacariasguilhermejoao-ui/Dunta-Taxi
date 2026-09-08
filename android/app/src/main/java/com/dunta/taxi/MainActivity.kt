@@ -252,6 +252,10 @@ class MainActivity : AppCompatActivity() {
             view.evaluateJavascript(code, null)
         } catch (e: Exception) { e.printStackTrace() }
         try {
+            val live = assets.open("dunta-live.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            view.evaluateJavascript(live, null)
+        } catch (e: Exception) { e.printStackTrace() }
+        try {
             val trip = assets.open("dunta-trip.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
             view.evaluateJavascript(trip, null)
         } catch (e: Exception) { e.printStackTrace() }

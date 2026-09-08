@@ -61,6 +61,13 @@ function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number) {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
 }
 
+function normVehicle(v: string) {
+  const x = String(v || '').toLowerCase()
+  if (!x || x === 'any') return 'any'
+  if (x.includes('mota') || x.includes('moto')) return 'mota'
+  return 'taxi'
+}
+
 async function sendFcm(tokens: string[], title: string, body: string, data: Record<string, string>) {
   if (!tokens.length) return { sent: 0, failed: 0 }
   const sa = JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON)
@@ -108,7 +115,9 @@ async function driverTokens(ride: any) {
 
   const eligible = (drivers || []).filter((d: any) => {
     if (!d.driver_id || ride.passenger_lat == null || ride.passenger_lng == null || d.latitude == null || d.longitude == null) return false
-    if (ride.vehicle_type !== 'any' && d.vehicle_type !== ride.vehicle_type) return false
+    const nr = normVehicle(String(ride.vehicle_type || 'any'))
+    const nd = normVehicle(String(d.vehicle_type || 'taxi'))
+    if (nr !== 'any' && nr !== nd) return false
     return distanceKm(+ride.passenger_lat, +ride.passenger_lng, +d.latitude, +d.longitude) <= 15
   }).map((d: any) => d.driver_id)
 
@@ -153,8 +162,13 @@ Deno.serve(async req => {
     let result = { sent: 0, failed: 0 }
 
     if ((event === 'INSERT' || !event) && ride.status === 'pending') {
+      const created = ride.created_at ? Date.parse(ride.created_at) : Date.now()
+      if (Date.now() - created > 120_000) {
+        return json({ ok: true, skipped: 'stale_ride' })
+      }
       const tokens = await driverTokens(ride)
-      result = await sendFcm(tokens, 'Novo pedido DUNTA', `${ride.passenger_name || 'Passageiro'} pediu uma corrida`, { type: 'rides', ride_id: String(ride.id) })
+      const vLabel = normVehicle(String(ride.vehicle_type || '')) === 'mota' ? 'mototáxi' : 'táxi'
+      result = await sendFcm(tokens, 'Novo pedido DUNTA', `${ride.passenger_name || 'Passageiro'} pediu ${vLabel}`, { type: 'rides', ride_id: String(ride.id) })
     } else if (event === 'UPDATE') {
       if (old.status !== 'accepted' && ride.status === 'accepted' && ride.passenger_id) {
         const tokens = await passengerTokens(ride.passenger_id)

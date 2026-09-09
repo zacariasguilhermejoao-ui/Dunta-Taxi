@@ -290,9 +290,12 @@ class MainActivity : AppCompatActivity() {
             val trip = assets.open("dunta-trip.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
             view.evaluateJavascript(trip, null)
         } catch (e: Exception) { e.printStackTrace() }
+        try {
+            val acc = assets.open("dunta-account.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            view.evaluateJavascript(acc, null)
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
-    /** Pede ao sistema para ligar a localização (GPS) se estiver desligada */
     private fun ensureSystemLocationOn() {
         try {
             val lm = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
@@ -310,7 +313,6 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
-    /** Arranca o GPS no WebView assim que a permissão é dada */
     private fun startWebGps() {
         try {
             if (!::web.isInitialized) return

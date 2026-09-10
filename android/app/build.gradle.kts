@@ -4,15 +4,56 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-android { namespace = "com.dunta.taxi"; compileSdk = 35
-    defaultConfig { applicationId = "com.dunta.taxi"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0.0" }
-    buildTypes { release { isMinifyEnabled = false } }
-    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    kotlinOptions { jvmTarget = "17" }
+import java.util.Properties
+import java.io.FileInputStream
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-// The complete web interface lives at the repository root. Copy it into the APK
-// on every build so the interface is available even with no mobile data/Wi-Fi.
+android {
+    namespace = "com.dunta.taxi"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.dunta.taxi"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
 val syncWebAssets by tasks.registering(Copy::class) {
     val webRoot = rootProject.projectDir.parentFile
     from(webRoot) {

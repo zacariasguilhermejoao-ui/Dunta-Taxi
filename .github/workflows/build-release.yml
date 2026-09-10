@@ -45,15 +45,46 @@ jobs:
             echo "  KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
             exit 1
           fi
-          # jks no modulo app (file() no build.gradle.kts e relativo a app/)
-          echo "$KEYSTORE_BASE64" | base64 -d > app/dunta-taxi-release.jks
+
+          # Aceita base64 com quebras de linha, espaços, aspas ou prefixo data:.
+          export KEYSTORE_BASE64
+          python3 - <<'PY'
+          import base64
+          import os
+          import re
+          from pathlib import Path
+
+          raw = os.environ["KEYSTORE_BASE64"].strip()
+          if raw.startswith("data:") and "," in raw:
+              raw = raw.split(",", 1)[1]
+
+          raw = raw.strip().strip('"').strip("'")
+          raw = re.sub(r"\\s+", "", raw)
+          raw = raw.replace("-", "+").replace("_", "/")
+          raw += "=" * ((4 - len(raw) % 4) % 4)
+
+          try:
+              decoded = base64.b64decode(raw, validate=True)
+          except Exception as exc:
+              raise SystemExit("ERRO: KEYSTORE_BASE64 não é um Base64 válido. Gere novamente o Base64 do ficheiro .jks e atualize o secret KEYSTORE_BASE64.") from exc
+
+          if len(decoded) < 64:
+              raise SystemExit("ERRO: KEYSTORE_BASE64 foi decodificado, mas parece demasiado pequeno para um keystore JKS/PKCS12 válido.")
+
+          Path("app/dunta-taxi-release.jks").write_bytes(decoded)
+          print(f"Keystore decodificado com sucesso ({len(decoded)} bytes).")
+          PY
+
           printf '%s\n' \
             "storeFile=dunta-taxi-release.jks" \
             "storePassword=$KEYSTORE_PASSWORD" \
             "keyAlias=$KEY_ALIAS" \
             "keyPassword=$KEY_PASSWORD" > keystore.properties
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          ls -la app/dunta-taxi-release.jks keystore.properties
+
+          # Confirma que o ficheiro é realmente um keystore antes de iniciar o Gradle.
+          keytool -list -keystore app/dunta-taxi-release.jks -storepass "$KEYSTORE_PASSWORD" >/dev/null
+          echo "Keystore validado com sucesso."
 
       - name: Create Gradle Wrapper if missing
         working-directory: android

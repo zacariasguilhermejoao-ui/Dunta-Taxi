@@ -11,9 +11,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: android
 
     steps:
       - name: Checkout
@@ -25,42 +22,54 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;34.0.0" "platform-tools"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Decode keystore
+      - name: Decode keystore and write properties
+        working-directory: android
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "ERRO: secret KEYSTORE_BASE64 em falta. Adiciona em Settings > Secrets and variables > Actions."
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "ERRO: faltam secrets. Vai a Settings > Secrets and variables > Actions e cria:"
+            echo "  KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > dunta-taxi-release.jks
-          cat > keystore.properties << EOF
-          storeFile=dunta-taxi-release.jks
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          EOF
-          # remove leading spaces from heredoc
-          sed -i 's/^[[:space:]]*//' keystore.properties
-          echo "sdk.dir=$ANDROID_HOME" > local.properties || true
+          # jks no modulo app (file() no build.gradle.kts e relativo a app/)
+          echo "$KEYSTORE_BASE64" | base64 -d > app/dunta-taxi-release.jks
+          printf '%s\n' \
+            "storeFile=dunta-taxi-release.jks" \
+            "storePassword=$KEYSTORE_PASSWORD" \
+            "keyAlias=$KEY_ALIAS" \
+            "keyPassword=$KEY_PASSWORD" > keystore.properties
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ls -la app/dunta-taxi-release.jks keystore.properties
 
-      - name: Make gradlew executable
+      - name: Create Gradle Wrapper if missing
+        working-directory: android
         run: |
-          if [ ! -f gradlew ]; then
+          if [ ! -f ./gradlew ]; then
             gradle wrapper --gradle-version 8.9
           fi
-          chmod +x gradlew
+          chmod +x ./gradlew
 
       - name: Build signed AAB + APK
-        run: |
-          ./gradlew bundleRelease assembleRelease --no-daemon
+        working-directory: android
+        run: ./gradlew bundleRelease assembleRelease --no-daemon --stacktrace
 
       - name: List outputs
-        run: |
-          find app/build/outputs -type f \( -name "*.aab" -o -name "*.apk" \) -ls
+        working-directory: android
+        run: find app/build/outputs -type f \( -name "*.aab" -o -name "*.apk" \) -ls
 
       - name: Upload AAB
         uses: actions/upload-artifact@v4

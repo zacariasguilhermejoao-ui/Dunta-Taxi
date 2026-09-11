@@ -27,7 +27,7 @@ jobs:
 
       - name: Install SDK packages
         run: |
-          sdkmanager "platforms;android-35" "build-tools;34.0.0" "platform-tools"
+          sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;35.0.0" "build-tools;34.0.0" "platform-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -42,38 +42,27 @@ jobs:
         run: |
           set -e
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "ERRO: faltam secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD)"
+            echo "ERRO: faltam secrets"
             exit 1
           fi
-          # Remover espaços/quebras de linha (comum ao colar no telemóvel)
           echo "$KEYSTORE_BASE64" | tr -d ' \n\r\t' > /tmp/ks.b64
           B64_LEN=$(wc -c < /tmp/ks.b64 | tr -d ' ')
-          echo "Tamanho do base64: $B64_LEN caracteres (esperado ~3648)"
+          echo "base64 chars: $B64_LEN"
           if [ "$B64_LEN" -lt 3000 ]; then
-            echo "ERRO: KEYSTORE_BASE64 está incompleto ($B64_LEN chars)."
-            echo "Apaga o secret KEYSTORE_BASE64 e volta a criar com o texto COMPLETO (3648 caracteres)."
+            echo "ERRO: KEYSTORE_BASE64 incompleto"
             exit 1
           fi
           base64 -d < /tmp/ks.b64 > app/dunta-taxi-release.jks
           KS_SIZE=$(wc -c < app/dunta-taxi-release.jks | tr -d ' ')
-          echo "Keystore decodificado: $KS_SIZE bytes (esperado ~2736)"
-          if [ "$KS_SIZE" -lt 2000 ]; then
-            echo "ERRO: ficheiro JKS demasiado pequeno — base64 incompleto."
-            exit 1
-          fi
-          # Validar password
-          if ! keytool -list -keystore app/dunta-taxi-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/tmp/kt.out 2>&1; then
-            echo "ERRO: não foi possível abrir o keystore."
-            cat /tmp/kt.out || true
-            exit 1
-          fi
-          echo "Keystore OK."
+          echo "keystore bytes: $KS_SIZE"
+          keytool -list -keystore app/dunta-taxi-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS"
           printf '%s\n' \
             "storeFile=dunta-taxi-release.jks" \
             "storePassword=$KEYSTORE_PASSWORD" \
             "keyAlias=$KEY_ALIAS" \
             "keyPassword=$KEY_PASSWORD" > keystore.properties
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+          cat keystore.properties
 
       - name: Create Gradle Wrapper if missing
         working-directory: android
@@ -86,6 +75,21 @@ jobs:
       - name: Build signed AAB + APK
         working-directory: android
         run: ./gradlew bundleRelease assembleRelease --no-daemon --stacktrace
+
+      - name: Verify AAB is signed
+        working-directory: android
+        run: |
+          AAB=$(ls app/build/outputs/bundle/release/*.aab | head -1)
+          echo "AAB: $AAB"
+          ls -la "$AAB"
+          # jarsigner verification
+          jarsigner -verify -verbose -certs "$AAB" 2>&1 | tail -30
+          if jarsigner -verify "$AAB" 2>&1 | grep -qi "jar verified"; then
+            echo "ASSINATURA OK"
+          else
+            echo "ERRO: AAB nao esta assinado corretamente"
+            exit 1
+          fi
 
       - name: List outputs
         working-directory: android

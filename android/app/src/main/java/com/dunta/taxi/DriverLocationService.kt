@@ -38,6 +38,9 @@ class DriverLocationService : Service() {
         override fun onLocationResult(result: LocationResult) {
             result.lastLocation?.let { location ->
                 if (!validCoord(location.latitude, location.longitude)) return
+                // Ignorar localizacoes com idade elevada (cache do sistema)
+                val age = System.currentTimeMillis() - location.time
+                if (age > 30000L) return
                 lastLat = location.latitude
                 lastLng = location.longitude
                 scope.launch { publish(location.latitude, location.longitude) }
@@ -67,9 +70,9 @@ class DriverLocationService : Service() {
     }
 
     private fun startLocation() {
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
-            .setMinUpdateIntervalMillis(3000L)
-            .setMinUpdateDistanceMeters(5f)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000L)
+            .setMinUpdateIntervalMillis(2000L)
+            .setMinUpdateDistanceMeters(2f)
             .build()
         try {
             fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
@@ -203,10 +206,14 @@ class DriverLocationService : Service() {
 
     private fun notifyRide(name: String, destination: String, rideId: String) {
         val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            setPackage(packageName)
             putExtra("ride_id", rideId)
             putExtra("notification_type", "rides")
             putExtra("from_notification", true)
+            putExtra("dunta_open_app", true)
         }
         val pending = android.app.PendingIntent.getActivity(
             this, rideId.hashCode(), intent,

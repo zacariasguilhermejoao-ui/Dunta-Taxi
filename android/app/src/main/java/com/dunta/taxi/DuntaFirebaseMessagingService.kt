@@ -45,20 +45,12 @@ class DuntaFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        val title = data["title"] ?: message.notification?.title ?: "DUNTA TAXI"
-        val body = data["body"] ?: message.notification?.body ?: "Tem uma nova atualização."
         val type = data["type"] ?: "alerts"
         val rideId = data["ride_id"]
+        val title = data["title"] ?: message.notification?.title ?: "DUNTA TAXI"
+        val body = data["body"] ?: message.notification?.body ?: "Nova notificacao"
 
-        val prefs = getSharedPreferences("dunta", 0)
-        val active = prefs.getString("active_ride_id", "")
-        // Em viagem ativa: não mostrar novos pedidos
-        if (type == "rides" && !active.isNullOrBlank()) return
-        if (!rideId.isNullOrBlank()) {
-            val handled = prefs.getStringSet("handled_ride_ids", emptySet()) ?: emptySet()
-            if (handled.contains(rideId)) return
-            if (!active.isNullOrBlank() && active == rideId) return
-        }
+        if (!rideId.isNullOrBlank() && isRideAlreadyHandled(rideId)) return
 
         showNotification(title, body, type, rideId)
     }
@@ -72,7 +64,7 @@ class DuntaFirebaseMessagingService : FirebaseMessagingService() {
                 if (channelId == "rides") "Pedidos de corrida" else "Alertas DUNTA",
                 if (channelId == "rides") NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Notificações DUNTA TAXI"
+                description = "Notificacoes DUNTA TAXI"
                 enableVibration(true)
                 setShowBadge(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
@@ -83,49 +75,55 @@ class DuntaFirebaseMessagingService : FirebaseMessagingService() {
         val intent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_MAIN
             addCategory(Intent.CATEGORY_LAUNCHER)
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            setPackage(packageName)
             if (!rideId.isNullOrBlank()) putExtra("ride_id", rideId)
             putExtra("notification_type", type)
             putExtra("from_notification", true)
+            putExtra("dunta_open_app", true)
         }
         val requestCode = (rideId ?: System.currentTimeMillis().toString()).hashCode()
         val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
         val pending = PendingIntent.getActivity(this, requestCode, intent, pendingFlags)
 
-        val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val builder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_map)
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(if (channelId == "rides") NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
-            .setCategory(if (channelId == "rides") NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
-            .setSound(sound)
-            .setVibrate(longArrayOf(0, 400, 200, 400))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
             .setContentIntent(pending)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
 
         val notifId = if (!rideId.isNullOrBlank()) rideId.hashCode() else System.currentTimeMillis().toInt()
-        manager.notify("dunta_ride", notifId, builder.build())
+        manager.notify(notifId, notification)
     }
 
     companion object {
-        fun markRideHandled(context: android.content.Context, rideId: String) {
+        fun markRideHandled(ctx: android.content.Context, rideId: String) {
             if (rideId.isBlank()) return
-            val prefs = context.getSharedPreferences("dunta", 0)
-            val set = prefs.getStringSet("handled_ride_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-            set.add(rideId)
-            val trimmed = set.toList().takeLast(50).toSet()
-            prefs.edit().putStringSet("handled_ride_ids", trimmed).putString("active_ride_id", rideId).apply()
-            val manager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            manager.cancel("dunta_ride", rideId.hashCode())
-            try { manager.cancelAll() } catch (_: Exception) {}
+            ctx.getSharedPreferences("dunta", 0).edit()
+                .putString("handled_ride_$rideId", "1")
+                .putString("active_ride_id", rideId)
+                .apply()
         }
 
-        fun clearActiveRide(context: android.content.Context) {
-            context.getSharedPreferences("dunta", 0).edit().remove("active_ride_id").apply()
+        fun clearActiveRide(ctx: android.content.Context) {
+            ctx.getSharedPreferences("dunta", 0).edit().remove("active_ride_id").apply()
+        }
+
+        fun isRideAlreadyHandled(ctx: android.content.Context, rideId: String): Boolean {
+            return ctx.getSharedPreferences("dunta", 0).getString("handled_ride_$rideId", null) != null
         }
     }
+
+    private fun isRideAlreadyHandled(rideId: String): Boolean =
+        isRideAlreadyHandled(this, rideId)
 }

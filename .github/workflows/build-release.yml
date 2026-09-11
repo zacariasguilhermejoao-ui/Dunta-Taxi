@@ -40,67 +40,40 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          set -e
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "ERRO: faltam secrets. Vai a Settings > Secrets and variables > Actions e cria:"
-            echo "  KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
+            echo "ERRO: faltam secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD)"
             exit 1
           fi
-
-          export KEYSTORE_BASE64
-          python3 - <<'PY'
-          import base64
-          import os
-          import re
-          from pathlib import Path
-
-          raw = os.environ["KEYSTORE_BASE64"].strip()
-          if raw.startswith("data:") and "," in raw:
-              raw = raw.split(",", 1)[1]
-          raw = raw.strip().strip('"').strip("'")
-          raw = re.sub(r"\s+", "", raw)
-          raw = raw.replace("-", "+").replace("_", "/")
-          raw += "=" * ((4 - len(raw) % 4) % 4)
-
-          try:
-              decoded = base64.b64decode(raw, validate=True)
-          except Exception as exc:
-              raise SystemExit("ERRO: KEYSTORE_BASE64 não é um Base64 válido. Gere novamente o Base64 do keystore.") from exc
-
-          if len(decoded) < 64:
-              raise SystemExit("ERRO: o keystore decodificado é demasiado pequeno.")
-
-          Path("app/dunta-taxi-release.jks").write_bytes(decoded)
-          print(f"Keystore decodificado com sucesso ({len(decoded)} bytes).")
-          PY
-
-          # Detecta automaticamente JKS ou PKCS12 usando a senha fornecida.
-          STORE_TYPE=""
-          if keytool -list -storetype JKS -keystore app/dunta-taxi-release.jks -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
-            STORE_TYPE="JKS"
-          elif keytool -list -storetype PKCS12 -keystore app/dunta-taxi-release.jks -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
-            STORE_TYPE="PKCS12"
-          else
-            echo "ERRO: não foi possível abrir o keystore com a KEYSTORE_PASSWORD fornecida."
-            echo "O Base64 está correto, mas a senha do keystore provavelmente está incorreta ou o ficheiro não é um JKS/PKCS12 válido."
+          # Remover espaços/quebras de linha (comum ao colar no telemóvel)
+          echo "$KEYSTORE_BASE64" | tr -d ' \n\r\t' > /tmp/ks.b64
+          B64_LEN=$(wc -c < /tmp/ks.b64 | tr -d ' ')
+          echo "Tamanho do base64: $B64_LEN caracteres (esperado ~3648)"
+          if [ "$B64_LEN" -lt 3000 ]; then
+            echo "ERRO: KEYSTORE_BASE64 está incompleto ($B64_LEN chars)."
+            echo "Apaga o secret KEYSTORE_BASE64 e volta a criar com o texto COMPLETO (3648 caracteres)."
             exit 1
           fi
-
-          echo "Tipo de keystore detectado: $STORE_TYPE"
-
-          # Verifica alias e senha da chave sem expor os valores nos logs.
-          if ! keytool -list -storetype "$STORE_TYPE" -keystore app/dunta-taxi-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "ERRO: KEY_ALIAS não existe neste keystore (ou a KEYSTORE_PASSWORD está incorreta)."
+          base64 -d < /tmp/ks.b64 > app/dunta-taxi-release.jks
+          KS_SIZE=$(wc -c < app/dunta-taxi-release.jks | tr -d ' ')
+          echo "Keystore decodificado: $KS_SIZE bytes (esperado ~2736)"
+          if [ "$KS_SIZE" -lt 2000 ]; then
+            echo "ERRO: ficheiro JKS demasiado pequeno — base64 incompleto."
             exit 1
           fi
-
+          # Validar password
+          if ! keytool -list -keystore app/dunta-taxi-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/tmp/kt.out 2>&1; then
+            echo "ERRO: não foi possível abrir o keystore."
+            cat /tmp/kt.out || true
+            exit 1
+          fi
+          echo "Keystore OK."
           printf '%s\n' \
             "storeFile=dunta-taxi-release.jks" \
-            "storeType=$STORE_TYPE" \
             "storePassword=$KEYSTORE_PASSWORD" \
             "keyAlias=$KEY_ALIAS" \
             "keyPassword=$KEY_PASSWORD" > keystore.properties
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "Keystore e alias validados com sucesso."
 
       - name: Create Gradle Wrapper if missing
         working-directory: android
